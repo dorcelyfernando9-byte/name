@@ -1,0 +1,16 @@
+# Ignorar archivos del juego y binarios
+Software Inc 1-8-38/
+Software+Inc+1-8-38.zip
+*.dll
+*.exe
+*.zip
+*.txt
+*.log
+bin/
+obj/
+MetadataDumper/bin/
+MetadataDumper/obj/
+sdk/dist/
+sdk/lib/
+MetadataDumper/*.dll
+MetadataDumper/*.exe
