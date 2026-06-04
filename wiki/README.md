@@ -21,6 +21,7 @@ Esta wiki es una referencia exhaustiva del ensamblado `Assembly-CSharp.dll` para
 ### 3. Guías Avanzadas y Retos
 - [🔥 Carga de Mods en Tiempo Real](../docs/guides/hot-loading.md) - Cómo descargar y activar mods sin salir del juego.
 - [🛠️ Nuevo Apartado de Instalación](../docs/guides/mod-installer-section.md) - Cómo crear una sección de "Mod Store" en la interfaz.
+- [💎 Wiki Ultra Detallada](../docs/ultra-detallada/README.md) - Análisis línea por línea y bytecode del motor.
 - [🛠️ Análisis de Metadatos (Metadata Dumper)](../MetadataDumper/Program.cs) - Cómo extraer información de futuras versiones.
 
 ---
