@@ -1,0 +1,22 @@
+{
+  "name": "@toolbox/cli",
+  "version": "1.0.0",
+  "description": "Toolbox CLI - Interfaz de terminal para Toolbox Core",
+  "main": "dist/index.js",
+  "bin": {
+    "toolbox": "dist/index.js"
+  },
+  "type": "commonjs",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@toolbox/core": "^1.0.0",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}

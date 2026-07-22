@@ -1,0 +1,29 @@
+{
+  "name": "@toolbox/core",
+  "version": "1.0.0",
+  "description": "Toolbox Core - Motor de desarrollo todo-en-uno con almacenamiento cifrado, eventos, APIs, obfuscador, crypto, colores, animaciones y más",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "commonjs",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "build:protected": "node scripts/build-protected.js"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0",
+    "ws": "^8.16.0",
+    "node-fetch": "^3.3.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/uuid": "^9.0.7",
+    "@types/ws": "^8.5.10",
+    "esbuild": "^0.24.0"
+  }
+}

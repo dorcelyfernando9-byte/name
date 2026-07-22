@@ -1,0 +1,20 @@
+{
+  "name": "toolbox-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @toolbox/core && npm run build -w @toolbox/cli",
+    "build:core": "npm run build -w @toolbox/core",
+    "build:cli": "npm run build -w @toolbox/cli",
+    "build:protected": "npm run build:protected -w @toolbox/core",
+    "test": "node packages/core/dist/test/tests.js",
+    "test:beta": "node packages/core/dist/test/beta-test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}
