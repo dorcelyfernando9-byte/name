@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { ToolboxCore, createStorage, SyntaxParser, logger, getLanguageBridge, listAvailableLanguages } from "@toolbox/core";
+import { ToolboxCore, createStorage, SyntaxParser, logger, getLanguageBridge, listAvailableLanguages, security } from "@toolbox/core";
 import { registerStorageCommands } from "./commands/storage";
 import { registerConfigCommands } from "./commands/config";
 import { registerKeyCommands } from "./commands/key";
@@ -13,10 +13,13 @@ import { registerObfuscateCommands } from "./commands/obfuscate";
 import { registerCryptoCommands } from "./commands/crypto";
 import { registerBuildCommands } from "./commands/build";
 import { registerGhCommand } from "./commands/gh";
+import { registerSecurityCommand } from "./commands/security";
 import { readFileSync } from "fs";
 
 const program = new Command();
 const toolbox = new ToolboxCore();
+
+security.runChecks();
 
 program
   .name("toolbox")
@@ -178,6 +181,7 @@ registerObfuscateCommands(program);
 registerCryptoCommands(program);
 registerBuildCommands(program);
 registerGhCommand(program);
+registerSecurityCommand(program);
 
 // Help
 program
