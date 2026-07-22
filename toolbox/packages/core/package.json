@@ -8,7 +8,8 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "build:protected": "node scripts/build-protected.js"
+    "build:protected": "node scripts/build-protected.js",
+    "compile:binary": "node scripts/compile-binary.js"
   },
   "dependencies": {
     "uuid": "^9.0.0",

@@ -1,8 +1,8 @@
-import Database from "better-sqlite3";
 import { IStorageDriver, StorageOptions, SetOptions, QueryResult, BackupOptions, CollectionSchema } from "../IStorageDriver";
 import { CryptoEngine } from "./crypto";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
+import type { Database as DatabaseType } from "better-sqlite3";
 
 interface InternalRow {
   key: string;
@@ -16,7 +16,7 @@ interface InternalRow {
 
 export class NSQLPlus implements IStorageDriver {
   readonly name = "nsql-plus";
-  private db!: Database.Database;
+  private db!: DatabaseType;
   private crypto: CryptoEngine;
   private path: string = "./toolbox_data";
   private initialized = false;
@@ -34,6 +34,7 @@ export class NSQLPlus implements IStorageDriver {
     }
 
     const dbPath = join(this.path, "nsql.db");
+    const Database = require("better-sqlite3");
     this.db = new Database(dbPath);
 
     this.db.pragma("journal_mode = WAL");

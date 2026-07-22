@@ -10,6 +10,7 @@
     "build:core": "npm run build -w @toolbox/core",
     "build:cli": "npm run build -w @toolbox/cli",
     "build:protected": "npm run build:protected -w @toolbox/core",
+    "compile:binary": "npm run compile:binary -w @toolbox/core",
     "test": "node packages/core/dist/test/tests.js",
     "test:beta": "node packages/core/dist/test/beta-test.js"
   },

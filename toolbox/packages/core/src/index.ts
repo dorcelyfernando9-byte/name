@@ -15,6 +15,7 @@ export * from "./queue";
 export * from "./secrets";
 export * from "./discord";
 export * from "./streams";
+export * from "./security";
 export * from "./languages";
 export * from "./colors";
 export * from "./responses";

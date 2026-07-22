@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { Command } from "commander";
 import { ToolboxCore, createStorage, SyntaxParser, logger, getLanguageBridge, listAvailableLanguages } from "@toolbox/core";
 import { registerStorageCommands } from "./commands/storage";
@@ -14,6 +12,7 @@ import { registerRunCommand } from "./commands/run";
 import { registerObfuscateCommands } from "./commands/obfuscate";
 import { registerCryptoCommands } from "./commands/crypto";
 import { registerBuildCommands } from "./commands/build";
+import { registerGhCommand } from "./commands/gh";
 import { readFileSync } from "fs";
 
 const program = new Command();
@@ -178,6 +177,7 @@ registerRunCommand(program);
 registerObfuscateCommands(program);
 registerCryptoCommands(program);
 registerBuildCommands(program);
+registerGhCommand(program);
 
 // Help
 program
