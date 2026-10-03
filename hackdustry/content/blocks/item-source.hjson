@@ -1,0 +1,14 @@
+name: "[#ffaa00]Item Source [#ff0000][Hackdustry]"
+type: ItemSource
+description: "Generates any item infinitely. Configure to select item type."
+size: 1
+health: 999999
+hasItems: true
+update: true
+solid: true
+group: transportation
+configurable: true
+alwaysUnlocked: true
+category: distribution
+requirements: []
+itemCapacity: 10000000

@@ -1,0 +1,14 @@
+name: "[#5555ff]Liquid Source [#ff0000][Hackdustry]"
+type: LiquidSource
+description: "Generates any liquid infinitely. Configure to select liquid type."
+size: 1
+health: 999999
+hasLiquids: true
+update: true
+solid: true
+group: liquids
+configurable: true
+alwaysUnlocked: true
+category: liquid
+requirements: []
+liquidCapacity: 10000

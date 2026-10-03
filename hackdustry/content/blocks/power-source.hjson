@@ -1,0 +1,13 @@
+name: "[#ffff00]Power Source [#ff0000][Hackdustry]"
+type: PowerNode
+description: "Generates infinite power. Automatically connects to nearby blocks."
+size: 1
+health: 999999
+maxNodes: 100
+laserRange: 50
+hasPower: true
+outputsPower: true
+consumesPower: false
+alwaysUnlocked: true
+category: power
+requirements: []

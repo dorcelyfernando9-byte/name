@@ -1,0 +1,9 @@
+name: "[#ff00ff]Command Block [#ff0000][Hackdustry]"
+type: MessageBlock
+description: "Execute JavaScript commands. Click to open console."
+size: 1
+health: 999999
+configurable: true
+alwaysUnlocked: true
+category: logic
+requirements: []

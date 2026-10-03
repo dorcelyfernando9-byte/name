@@ -1,0 +1,14 @@
+name: "hackdustry"
+displayName: "[#00ff00]Hack[#ffff00]dustry [#ff0000]Menu"
+author: "Hackdustry Team"
+description: '''
+Advanced cheat menu mod for Mindustry with 50+ features.
+Mobile-friendly UI, multilingual support (30+ languages), and modular item detection.
+
+Menú de trucos avanzado para Mindustry con más de 50 funciones.
+Interfaz móvil-friendly, soporte multiidioma (30+ idiomas) y detección modular de items.
+'''
+version: "1.0.0"
+minGameVersion: 146
+dependencies: []
+hidden: false

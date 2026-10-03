@@ -1,0 +1,24 @@
+name: "[#ff0000]Super Turret [#ff0000][Hackdustry]"
+type: ItemTurret
+description: "Ultra-powerful turret with infinite range and damage."
+size: 2
+health: 999999
+reload: 1
+range: 9999
+inaccuracy: 0
+shots: 10
+spread: 5
+targetAir: true
+targetGround: true
+alwaysUnlocked: true
+category: turret
+requirements: []
+ammoTypes: {
+    copper: {
+        damage: 10000
+        speed: 20
+        lifetime: 500
+        pierce: true
+        pierceCap: 100
+    }
+}
