@@ -1,275 +1,249 @@
-// Main Menu UI - Draggable floating button with expandable menu
+// Main Menu UI - Floating draggable "H" button (mobile + PC)
 
 const MainMenu = {
     dialog: null,
+    table: null,
     button: null,
-    buttonX: 100,
-    buttonY: 100,
+    buttonX: 20,
+    buttonY: 200,
     isDragging: false,
-    dragStartX: 0,
-    dragStartY: 0,
+    dragOffsetX: 0,
+    dragOffsetY: 0,
     searchQuery: "",
     currentTab: "resources",
     favorites: [],
-    
+    btnSize: 56,
+
     init() {
-        this.loadPosition();
-        this.createFloatingButton();
-        this.createMainDialog();
-        this.favorites = HackdustrySettings.loadFavorites();
+        try {
+            this.loadPosition();
+            this.createFloatingButton();
+            this.createMainDialog();
+            this.favorites = HackdustrySettings.loadFavorites();
+            print("[Hackdustry] Floating menu button ready");
+        } catch (e) {
+            print("[Hackdustry] UI init error: " + e);
+        }
     },
-    
-    // Create draggable floating button
+
+    // Small floating table (NOT fillParent — that blocks the whole screen on mobile)
     createFloatingButton() {
-        const ui = new Table();
-        ui.setFillParent(true);
-        ui.top().left();
-        
-        const button = ui.button("[#00ff00]H", Styles.defaultt, () => {
-            if (!this.isDragging) {
-                this.showMenu();
-            }
-        }).size(60).get();
-        
-        button.setColor(Color.valueOf("00ff0088"));
-        
-        // Make button draggable (mobile-friendly)
-        button.addListener(new InputListener({
+        const size = this.btnSize;
+        const table = new Table();
+        table.touchable = Touchable.enabled;
+
+        const button = table.button("[#00ff00]H", Styles.defaultt, () => {
+            // Open handled in touchUp so mobile + PC behave the same
+        }).size(size, size).get();
+
+        button.setColor(Color.valueOf("00ff00aa"));
+
+        // Rhino needs extend(InputListener), not new InputListener({...})
+        button.addListener(extend(InputListener, {
             touchDown(event, x, y, pointer, btn) {
                 MainMenu.isDragging = false;
-                MainMenu.dragStartX = x;
-                MainMenu.dragStartY = y;
-                return true;
+                MainMenu.dragOffsetX = x;
+                MainMenu.dragOffsetY = y;
+                // Bring to front while dragging
+                table.toFront();
+                return true; // capture touch (needed for drag on mobile)
             },
-            
+
             touchDragged(event, x, y, pointer) {
-                const deltaX = x - MainMenu.dragStartX;
-                const deltaY = y - MainMenu.dragStartY;
-                
-                // Check if moved enough to be considered dragging
-                if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+                const dx = x - MainMenu.dragOffsetX;
+                const dy = y - MainMenu.dragOffsetY;
+
+                if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
                     MainMenu.isDragging = true;
-                    MainMenu.buttonX += deltaX;
-                    MainMenu.buttonY -= deltaY; // Inverted Y
-                    
-                    // Clamp to screen bounds
-                    MainMenu.buttonX = Mathf.clamp(MainMenu.buttonX, 0, Core.graphics.getWidth() - 60);
-                    MainMenu.buttonY = Mathf.clamp(MainMenu.buttonY, 0, Core.graphics.getHeight() - 60);
-                    
-                    button.setPosition(MainMenu.buttonX, Core.graphics.getHeight() - MainMenu.buttonY - 60);
+                }
+
+                if (MainMenu.isDragging) {
+                    let nx = table.x + dx;
+                    let ny = table.y + dy;
+
+                    const w = Core.graphics.getWidth();
+                    const h = Core.graphics.getHeight();
+                    nx = Mathf.clamp(nx, 0, w - size);
+                    ny = Mathf.clamp(ny, 0, h - size);
+
+                    table.setPosition(nx, ny);
+                    MainMenu.buttonX = nx;
+                    MainMenu.buttonY = ny;
                 }
             },
-            
+
             touchUp(event, x, y, pointer, btn) {
                 if (MainMenu.isDragging) {
                     MainMenu.savePosition();
                     MainMenu.isDragging = false;
+                } else {
+                    // Tap without drag → open menu (works on Android)
+                    MainMenu.showMenu();
                 }
             }
         }));
-        
-        button.setPosition(this.buttonX, Core.graphics.getHeight() - this.buttonY - 60);
-        
-        // Update position on screen resize
+
+        // Place near left side, mid-height (safe on phones)
+        const w = Core.graphics.getWidth();
+        const h = Core.graphics.getHeight();
+        this.buttonX = Mathf.clamp(this.buttonX, 0, Math.max(0, w - size));
+        this.buttonY = Mathf.clamp(this.buttonY, 0, Math.max(0, h - size));
+        table.setPosition(this.buttonX, this.buttonY);
+        table.pack();
+
+        // HUD group = visible in-game; also add to scene so it exists after load
+        if (Vars.ui && Vars.ui.hudGroup) {
+            Vars.ui.hudGroup.addChild(table);
+        } else {
+            Core.scene.add(table);
+        }
+
+        this.table = table;
+        this.button = button;
+
+        // Keep on screen if resolution / orientation changes
         Events.run(Trigger.update, () => {
-            if (!MainMenu.isDragging) {
-                button.setPosition(MainMenu.buttonX, Core.graphics.getHeight() - MainMenu.buttonY - 60);
+            if (!MainMenu.table || MainMenu.isDragging) return;
+            const tw = Core.graphics.getWidth();
+            const th = Core.graphics.getHeight();
+            const nx = Mathf.clamp(MainMenu.buttonX, 0, Math.max(0, tw - size));
+            const ny = Mathf.clamp(MainMenu.buttonY, 0, Math.max(0, th - size));
+            if (nx !== MainMenu.buttonX || ny !== MainMenu.buttonY) {
+                MainMenu.buttonX = nx;
+                MainMenu.buttonY = ny;
+                MainMenu.table.setPosition(nx, ny);
             }
         });
-        
-        Core.scene.add(ui);
-        this.button = button;
     },
-    
-    // Create main menu dialog
+
     createMainDialog() {
         this.dialog = new BaseDialog(I18n.get("menu.title", "Hackdustry Menu"));
         this.dialog.setFillParent(true);
-        
+
         const cont = this.dialog.cont;
-        
-        // Search bar
+
+        // Search
         cont.table(search => {
-            search.image(Icon.zoom).size(40).padRight(10);
+            search.image(Icon.zoom).size(32).padRight(8);
             const field = search.field(this.searchQuery, text => {
                 this.searchQuery = text;
                 this.refreshContent();
-            }).width(400).get();
+            }).growX().get();
             field.setMessageText(I18n.get("search", "Search..."));
-        }).fillX().padBottom(10).row();
-        
-        // Tabs
+        }).growX().pad(8).row();
+
+        // Tabs — use icons that exist on all Mindustry builds
         cont.table(tabs => {
-            this.createTab(tabs, "resources", Icon.itemCopper);
-            this.createTab(tabs, "acceleration", Icon.upgrade);
+            this.createTab(tabs, "resources", Icon.box);
+            this.createTab(tabs, "acceleration", Icon.up);
             this.createTab(tabs, "units", Icon.units);
-            this.createTab(tabs, "building", Icon.blocks);
+            this.createTab(tabs, "building", Icon.settings);
             this.createTab(tabs, "research", Icon.tree);
-            this.createTab(tabs, "teleport", Icon.move);
-            this.createTab(tabs, "vision", Icon.eye);
-            this.createTab(tabs, "player", Icon.admin);
-            this.createTab(tabs, "world", Icon.terrain);
+            this.createTab(tabs, "teleport", Icon.right);
+            this.createTab(tabs, "vision", Icon.zoom);
+            this.createTab(tabs, "player", Icon.players);
+            this.createTab(tabs, "world", Icon.map);
             this.createTab(tabs, "favorites", Icon.star);
-        }).fillX().height(70).padBottom(10).row();
-        
-        // Content area (scrollable)
+        }).growX().height(56).padBottom(6).row();
+
         const pane = new ScrollPane(new Table());
-        cont.add(pane).grow().row();
+        pane.setScrollingDisabled(false, false);
+        cont.add(pane).grow().pad(4).row();
         this.contentPane = pane;
-        
-        // Close button
+
         this.dialog.buttons.button("@close", Icon.cancel, () => {
             this.dialog.hide();
-        }).size(200, 60);
-        
+        }).size(180, 50);
+
         this.refreshContent();
     },
-    
+
     createTab(table, name, icon) {
-        table.button(icon, Styles.clearTogglei, 50, () => {
+        table.button(icon, Styles.clearTogglei, 40, () => {
             this.currentTab = name;
             this.refreshContent();
-        }).checked(b => this.currentTab === name).tooltip(I18n.get("tab." + name));
+        }).checked(b => this.currentTab === name)
+          .tooltip(I18n.get("tab." + name, name));
     },
-    
+
     refreshContent() {
         const content = new Table();
-        
-        switch(this.currentTab) {
-            case "resources":
-                this.buildResourcesTab(content);
-                break;
-            case "acceleration":
-                this.buildAccelerationTab(content);
-                break;
-            case "units":
-                this.buildUnitsTab(content);
-                break;
-            case "building":
-                this.buildBuildingTab(content);
-                break;
-            case "research":
-                this.buildResearchTab(content);
-                break;
-            case "teleport":
-                this.buildTeleportTab(content);
-                break;
-            case "vision":
-                this.buildVisionTab(content);
-                break;
-            case "player":
-                this.buildPlayerTab(content);
-                break;
-            case "world":
-                this.buildWorldTab(content);
-                break;
-            case "favorites":
-                this.buildFavoritesTab(content);
-                break;
+        content.defaults().pad(4);
+
+        switch (this.currentTab) {
+            case "resources": this.buildResourcesTab(content); break;
+            case "acceleration": this.stub(content, "Acceleration"); break;
+            case "units": this.stub(content, "Units"); break;
+            case "building": this.stub(content, "Building"); break;
+            case "research": this.stub(content, "Research"); break;
+            case "teleport": this.stub(content, "Teleport"); break;
+            case "vision": this.stub(content, "Vision"); break;
+            case "player": this.stub(content, "Player"); break;
+            case "world": this.stub(content, "World"); break;
+            case "favorites": this.buildFavoritesTab(content); break;
         }
-        
+
         this.contentPane.setWidget(content);
     },
-    
+
+    stub(content, title) {
+        content.add("[accent]" + title).row();
+        content.add("Coming soon...").padTop(16);
+    },
+
     buildResourcesTab(content) {
-        content.add(I18n.get("tab.resources.title", "Resources")).color(Color.accent).row();
-        
-        // Quick add items input
+        content.add(I18n.get("tab.resources", "Resources")).color(Pal.accent).row();
+
         content.table(t => {
-            t.add(I18n.get("item-name", "Item:")).padRight(10);
-            const itemField = t.field("", text => {}).width(200).get();
+            t.add(I18n.get("item-name", "Item:")).padRight(6);
+            const itemField = t.field("", text => {}).width(140).get();
             itemField.setMessageText("copper");
-            
-            t.add(I18n.get("amount", "Amount:")).padLeft(10).padRight(10);
-            const amountField = t.field("1000", text => {}).width(150).get();
-            
+
+            t.add(I18n.get("amount", "Amount:")).padLeft(8).padRight(6);
+            const amountField = t.field("1000", text => {}).width(100).get();
+
             t.button(I18n.get("add", "Add"), Icon.add, () => {
                 const itemName = itemField.getText();
                 const amount = parseInt(amountField.getText()) || 1000;
                 ResourcesModule.addItem(itemName, amount);
-            }).width(150).height(50);
-        }).fillX().padBottom(10).row();
-        
-        // Quick actions
+            }).height(44).padLeft(6);
+        }).growX().padBottom(8).row();
+
         content.button(I18n.get("fill-core", "Fill Core (1M each)"), Icon.upload, () => {
             ResourcesModule.fillCore();
-        }).fillX().height(60).padBottom(5).row();
-        
+        }).growX().height(50).padBottom(4).row();
+
         content.button(I18n.get("add-all-10k", "Add All Items (10k)"), Icon.add, () => {
             ResourcesModule.addAllItems(10000);
-        }).fillX().height(60).padBottom(5).row();
-        
+        }).growX().height(50).padBottom(4).row();
+
         content.button(I18n.get("clear-items", "Clear All Items"), Icon.trash, () => {
             ResourcesModule.clearItems();
-        }).fillX().height(60).row();
+        }).growX().height(50).row();
     },
-    
-    buildAccelerationTab(content) {
-        content.add("[accent]Acceleration").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildUnitsTab(content) {
-        content.add("[accent]Units").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildBuildingTab(content) {
-        content.add("[accent]Building").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildResearchTab(content) {
-        content.add("[accent]Research").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildTeleportTab(content) {
-        content.add("[accent]Teleport").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildVisionTab(content) {
-        content.add("[accent]Vision").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildPlayerTab(content) {
-        content.add("[accent]Player").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
-    buildWorldTab(content) {
-        content.add("[accent]World").row();
-        content.add("Coming soon...").padTop(20);
-    },
-    
+
     buildFavoritesTab(content) {
-        content.add("[accent]Favorites").row();
-        if (this.favorites.length === 0) {
-            content.add("No favorites yet").padTop(20);
+        content.add("[accent]" + I18n.get("tab.favorites", "Favorites")).row();
+        if (!this.favorites || this.favorites.length === 0) {
+            content.add("No favorites yet").padTop(16);
         }
     },
-    
+
     showMenu() {
+        if (!this.dialog) return;
         this.refreshContent();
         this.dialog.show();
     },
-    
+
     loadPosition() {
         const pos = HackdustrySettings.loadMenuPosition();
         this.buttonX = pos.x;
         this.buttonY = pos.y;
     },
-    
+
     savePosition() {
         HackdustrySettings.saveMenuPosition(this.buttonX, this.buttonY);
     }
 };
-
-// Initialize on client load
-Events.on(ClientLoadEvent, () => {
-    MainMenu.init();
-});
 
 this.global.MainMenu = MainMenu;

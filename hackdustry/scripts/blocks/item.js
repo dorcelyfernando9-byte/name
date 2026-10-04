@@ -1,13 +1,8 @@
-// Item Source Block - Infinite item generation
-
-const itemSource = extend(ItemSource, "item-source", {});
-
-itemSource.buildType = () => extend(ItemSource.ItemSourceBuild, itemSource, {
-    updateTile() {
-        this.super$updateTile();
-        this.health = Number.MAX_VALUE;
-    }
+const item=extend(ItemSource,"item", {
+update(){
+this.health = Number.MAX_VALUE
+}
 });
-
-itemSource.update = true;
-itemSource.health = 999999999;
+item.update = true;
+item.itemCapacity=10000000;
+item.health = 999999999

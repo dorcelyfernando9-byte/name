@@ -1,13 +1,8 @@
-// Liquid Source Block - Infinite liquid generation
-
-const liquidSource = extend(LiquidSource, "liquid-source", {});
-
-liquidSource.buildType = () => extend(LiquidSource.LiquidSourceBuild, liquidSource, {
-    updateTile() {
-        this.super$updateTile();
-        this.health = Number.MAX_VALUE;
-    }
+const liquid=extend(LiquidSource,"liquid", {
+update(){
+this.health = Number.MAX_VALUE
+}
 });
-
-liquidSource.update = true;
-liquidSource.health = 999999999;
+liquid.update = true;
+liquid.liquidCapacity = 10000000;
+liquid.health = 900000000;

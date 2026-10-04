@@ -1,4 +1,18 @@
-# Changelog - Hackdustry
+# Changelog
+
+## [1.1.0] - 2026-10-04
+
+### Added
+- Integrated CheatMOD blocks, sprites and icon from https://github.com/oleglysukhin/Cheat
+- Blocks: item, liquid, power, wall, turret, magic, cc, skip, command, boost, shield, conv, value, drill
+- Unit: unit2 + liquid x250
+- Attribution: NOTICE.md + LICENSE-Cheat-MPL2.txt
+
+### Changed
+- Rebranded content namespace from `cheat-*` to `hackdustry-*`
+- Version bump to 1.1.0
+
+
 
 All notable changes to this project will be documented in this file.
 

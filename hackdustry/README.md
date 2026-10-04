@@ -327,7 +327,7 @@ This mod is free and open source. Use at your own risk in multiplayer!
 ## 🌟 Credits / Créditos
 
 - **Developer**: Hackdustry Team
-- **Based on**: Cheat Mod by oleglysukhin
+- **Blocks / sprites / icon**: adapted from [CheatMOD](https://github.com/oleglysukhin/Cheat) by paulieg626 / oleglysukhin (MPL-2.0)
 - **Framework**: Mindustry Modding
 
 ---

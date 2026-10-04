@@ -1,9 +1,0 @@
-name: "[#888888]Invincible Wall [#ff0000][Hackdustry]"
-type: Wall
-description: "Indestructible wall that cannot be damaged."
-size: 1
-health: 999999999
-armor: 999999
-alwaysUnlocked: true
-category: defense
-requirements: []

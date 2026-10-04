@@ -1,18 +1,7 @@
-// Invincible Wall Block - Cannot be destroyed
-
-const invincibleWall = extend(Wall, "invincible-wall", {});
-
-invincibleWall.buildType = () => extend(Wall.WallBuild, invincibleWall, {
-    updateTile() {
-        this.super$updateTile();
-        this.health = Number.MAX_VALUE;
-    },
-    
-    damage(amount) {
-        // Override damage to make it invincible
-        return;
-    }
+const wall = extend(Wall, "wall", {
+update(){
+this.entity.health = Number.MAX_VALUE
+}
 });
-
-invincibleWall.update = true;
-invincibleWall.health = 999999999;
+wall.update = true;
+wall.health = 900000000;

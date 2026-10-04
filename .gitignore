@@ -14,3 +14,7 @@ sdk/dist/
 sdk/lib/
 MetadataDumper/*.dll
 MetadataDumper/*.exe
+
+# Local secrets / config (never commit API keys)
+kilo.json
+hackdustry.zip

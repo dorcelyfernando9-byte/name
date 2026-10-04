@@ -193,10 +193,5 @@ const MusicPlayer = {
     }
 };
 
-// Initialize on client load
-Events.on(ClientLoadEvent, () => {
-    MusicPlayer.init();
-    MusicPlayer.volume = HackdustrySettings.getFloat("music_volume", 0.5);
-});
-
+// Init is called from main.js after ClientLoadEvent require() — do not re-register ClientLoadEvent here
 this.global.MusicPlayerModule = MusicPlayer;
