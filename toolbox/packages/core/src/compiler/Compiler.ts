@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync, rmSync } from "fs";
-import { join, extname, basename } from "path";
+import { join, extname, basename, relative } from "path";
 import { logger } from "../logging/Logger";
 import { EventBus } from "../events/EventBus";
 
@@ -93,6 +93,12 @@ export class Compiler {
           break;
         case "python":
           await this.buildPython(fullOutputPath, buildConfig);
+          break;
+        case "javascript":
+          await this.buildJavaScript(fullOutputPath, buildConfig);
+          break;
+        case "typescript":
+          await this.buildTypeScript(fullOutputPath, buildConfig);
           break;
         default:
           throw new Error(`Unsupported build target: ${buildConfig.target}`);
@@ -358,6 +364,240 @@ app.init().then(() => {
     };
     writeFileSync(join(process.cwd(), "toolbox.json"), JSON.stringify(config, null, 2));
     logger.success(`Created toolbox.json for project: ${name}`);
+  }
+
+  /**
+   * Build target: javascript
+   * Bundles .js source files. Uses esbuild when available; falls back to the
+   * internal bundler that concatenates files and optionally minifies via
+   * simple whitespace stripping.
+   */
+  private async buildJavaScript(outputDir: string, config: BuildOptions): Promise<void> {
+    const entryFile = config.entry || this.config.entry || "src/index.js";
+    const entryPath = join(process.cwd(), entryFile);
+    const outName = basename(entryFile, extname(entryFile)) + (config.minify ? ".min.js" : ".js");
+    const outFile = join(outputDir, outName);
+
+    const esbuildAvailable = this.commandAvailable("esbuild");
+
+    if (esbuildAvailable) {
+      const flags = [
+        `--bundle`,
+        `--platform=node`,
+        config.mode === "release" && config.optimize ? "--minify" : "",
+        config.mode === "debug" ? "--sourcemap" : "",
+        `--outfile="${outFile}"`,
+      ].filter(Boolean).join(" ");
+
+      execSync(`npx esbuild "${entryPath}" ${flags}`, { stdio: "inherit" });
+      logger.success(`JavaScript bundle: ${outFile}`);
+    } else {
+      logger.warn("esbuild not found — using internal bundler");
+      this.bundleScript(outFile, { ...config, entry: entryFile });
+      logger.success(`JavaScript bundle (internal): ${outFile}`);
+    }
+  }
+
+  /**
+   * Build target: typescript
+   * Transpiles TypeScript. Tries esbuild first (fast), then tsc, and finally
+   * falls back to the internal bundler that strips type annotations via a
+   * simple regex pass so the output at least runs.
+   */
+  private async buildTypeScript(outputDir: string, config: BuildOptions): Promise<void> {
+    const entryFile = config.entry || this.config.entry || "src/index.ts";
+    const entryPath = join(process.cwd(), entryFile);
+    const outName = basename(entryFile, extname(entryFile)) + ".js";
+    const outFile = join(outputDir, outName);
+
+    const esbuildAvailable = this.commandAvailable("esbuild");
+    const tscAvailable = this.commandAvailable("tsc");
+
+    if (esbuildAvailable) {
+      const flags = [
+        `--bundle`,
+        `--platform=node`,
+        `--format=cjs`,
+        config.mode === "release" && config.optimize ? "--minify" : "",
+        config.mode === "debug" ? "--sourcemap" : "",
+        `--outfile="${outFile}"`,
+      ].filter(Boolean).join(" ");
+
+      execSync(`npx esbuild "${entryPath}" ${flags}`, { stdio: "inherit" });
+      logger.success(`TypeScript bundle via esbuild: ${outFile}`);
+      return;
+    }
+
+    if (tscAvailable) {
+      const tsconfigPath = join(process.cwd(), "tsconfig.json");
+      const tsArgs = [
+        "--outDir", `"${outputDir}"`,
+        "--module", "commonjs",
+        "--target", "ES2022",
+        "--esModuleInterop",
+        "--skipLibCheck",
+        config.mode === "debug" ? "--sourceMap" : "",
+        `"${entryPath}"`,
+      ].filter(Boolean).join(" ");
+
+      if (existsSync(tsconfigPath)) {
+        execSync(`npx tsc --project "${tsconfigPath}" --outDir "${outputDir}"`, { stdio: "inherit" });
+      } else {
+        execSync(`npx tsc ${tsArgs}`, { stdio: "inherit" });
+      }
+      logger.success(`TypeScript compiled via tsc: ${outputDir}`);
+      return;
+    }
+
+    // Last resort: basic TS → JS transpilation (strips type annotations)
+    logger.warn("Neither esbuild nor tsc found — using basic TypeScript stripper");
+    const tsFiles = this.collectFiles(join(process.cwd(), config.sourceDir || "src"), [".ts"]);
+    for (const tsFile of tsFiles) {
+      const src = readFileSync(tsFile, "utf-8");
+      const js = this.stripTypeScript(src);
+      const relPath = relative(join(process.cwd(), config.sourceDir || "src"), tsFile);
+      const jsOut = join(outputDir, relPath.replace(/\.ts$/, ".js"));
+      mkdirSync(join(jsOut, ".."), { recursive: true });
+      writeFileSync(jsOut, js);
+    }
+    logger.success(`TypeScript stripped (basic) → ${outputDir}`);
+  }
+
+  /**
+   * Very basic TypeScript → JavaScript stripper used as a last resort when
+   * neither esbuild nor tsc is installed. It removes import/export type
+   * declarations, interface/type blocks, and inline type annotations well
+   * enough for most simple files to run under Node.
+   */
+  private stripTypeScript(src: string): string {
+    return src
+      // Remove single-line type/interface declarations
+      .replace(/^export\s+(type|interface)\s+[^\n]+(\{[^}]*\})?;?\s*$/gm, "")
+      .replace(/^(type|interface)\s+[^\n]+(\{[^}]*\})?;?\s*$/gm, "")
+      // Remove inline type annotations: `: Type`, `<Type>`, `as Type`
+      .replace(/:\s*[A-Z][A-Za-z0-9<>|&\[\], ]*(?=[,)\s=])/g, "")
+      .replace(/<[A-Za-z][A-Za-z0-9, ]*>/g, "")
+      .replace(/\s+as\s+[A-Za-z][A-Za-z0-9<>|&\[\], ]*/g, "")
+      // Remove visibility modifiers
+      .replace(/\b(private|protected|public|readonly|abstract|override)\b\s*/g, "")
+      // Remove declare keywords
+      .replace(/\bdeclare\s+/g, "")
+      // Replace import type with nothing
+      .replace(/^import\s+type\s+[^\n]+;\s*$/gm, "")
+      // Convert import { X } from "Y" → const { X } = require("Y")
+      .replace(
+        /^import\s+\{([^}]+)\}\s+from\s+["']([^"']+)["'];?\s*$/gm,
+        (_, names, mod) => `const {${names}} = require("${mod}");`
+      )
+      // Convert import X from "Y" → const X = require("Y")
+      .replace(
+        /^import\s+(\w+)\s+from\s+["']([^"']+)["'];?\s*$/gm,
+        (_, name, mod) => `const ${name} = require("${mod}");`
+      )
+      // Convert export default → module.exports =
+      .replace(/^export\s+default\s+/gm, "module.exports = ")
+      // Convert export const/function/class → plain declaration
+      .replace(/^export\s+(const|let|var|function|class)\s+/gm, "$1 ");
+  }
+
+  /**
+   * Returns a structured description of everything the compiler supports:
+   * targets, languages, available system tools, and current project config.
+   */
+  describe(): {
+    name: string;
+    version: string;
+    projectType: string;
+    language: string;
+    targets: Array<{ target: string; description: string; tool: string; available: boolean }>;
+    binaryLanguages: Array<{ language: string; tool: string; available: boolean }>;
+    currentConfig: Partial<ProjectConfig>;
+  } {
+    const targets: Array<{ target: string; description: string; tool: string; available: boolean }> = [
+      {
+        target: "node",
+        description: "Bundle as a Node.js script (copies sources + bootstrap shim)",
+        tool: "node",
+        available: this.commandAvailable("node"),
+      },
+      {
+        target: "javascript",
+        description: "Bundle JavaScript sources into a single file",
+        tool: "esbuild (or internal bundler)",
+        available: true,
+      },
+      {
+        target: "typescript",
+        description: "Transpile TypeScript to JavaScript",
+        tool: "esbuild / tsc / basic stripper",
+        available: true,
+      },
+      {
+        target: "exe",
+        description: "Pack into a self-contained executable via pkg",
+        tool: "pkg",
+        available: this.commandAvailable("pkg") || this.commandAvailable("npx"),
+      },
+      {
+        target: "binary",
+        description: "Compile to a native binary (C, C++, Rust, Go)",
+        tool: "gcc / g++ / rustc / go",
+        available: ["gcc", "g++", "rustc", "go"].some(t => this.commandAvailable(t)),
+      },
+      {
+        target: "dll",
+        description: "Compile as a shared library (.so / .dylib / .dll)",
+        tool: "gcc / g++ / rustc",
+        available: ["gcc", "g++", "rustc"].some(t => this.commandAvailable(t)),
+      },
+      {
+        target: "wasm",
+        description: "Compile to WebAssembly via Emscripten",
+        tool: "emcc",
+        available: this.commandAvailable("emcc"),
+      },
+      {
+        target: "python",
+        description: "Package as a Python executable via PyInstaller or zipapp",
+        tool: "pyinstaller / python -m zipapp",
+        available: this.commandAvailable("python") || this.commandAvailable("python3"),
+      },
+    ];
+
+    const binaryLanguages: Array<{ language: string; tool: string; available: boolean }> = [
+      { language: "c",      tool: "gcc / clang / tcc", available: ["gcc", "clang", "tcc"].some(t => this.commandAvailable(t)) },
+      { language: "cpp",    tool: "g++ / clang++",     available: ["g++", "clang++"].some(t => this.commandAvailable(t)) },
+      { language: "rust",   tool: "rustc",             available: this.commandAvailable("rustc") },
+      { language: "go",     tool: "go",                available: this.commandAvailable("go") },
+    ];
+
+    return {
+      name: this.config.name,
+      version: this.config.version,
+      projectType: this.config.type,
+      language: this.config.language,
+      targets,
+      binaryLanguages,
+      currentConfig: {
+        name: this.config.name,
+        version: this.config.version,
+        type: this.config.type,
+        language: this.config.language,
+        entry: this.config.entry,
+        output: this.config.output,
+        build: this.config.build,
+      },
+    };
+  }
+
+  /** Check if a command is available on PATH without throwing. */
+  private commandAvailable(cmd: string): boolean {
+    try {
+      execSync(`${cmd} --version`, { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private bundleScript(outputPath: string, config: BuildOptions): void {
