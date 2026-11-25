@@ -372,14 +372,15 @@ end)
 local marcaParte = nil
 
 -- ZPlato = 1.2 (del módulo Pelota del juego)
--- La marca se posiciona en CFrame.new(pT.X, pT.Y, ZPlato + 0.03)
--- igual que la MarcaLlegada nativa del juego
 local ZPLATO = Pelota.ZPlato or 1.2
+local ZONA   = Pelota.Zona or { xMin=-1.4, xMax=1.4, yMin=1.5, yMax=4.3 }
+
+-- Posición suavizada del aim (para seguir la pelota sin saltos bruscos)
+local aimActual = Vector2.new(0, (ZONA.yMin + ZONA.yMax) / 2)
 
 local function crearMarca()
     if marcaParte then pcall(function() marcaParte:Destroy() end) end
 
-    -- Part principal — disco fino vertical en el plato
     local p = Instance.new("Part")
     p.Name         = "SMBMarca"
     p.Anchored     = true
@@ -387,42 +388,40 @@ local function crearMarca()
     p.CanQuery     = false
     p.CanTouch     = false
     p.CastShadow   = false
+    -- Disco vertical: Cylinder con Size(grosor, diámetro, diámetro)
+    -- rotado 90° en X para que quede como plano vertical
     p.Shape        = Enum.PartType.Cylinder
-    -- RadioVisual * 2 = 0.6 studs de diámetro (igual que el juego)
-    p.Size         = Vector3.new(0.06, 0.7, 0.7)
+    p.Size         = Vector3.new(0.06, 0.72, 0.72)
     p.Material     = Enum.Material.Neon
     p.Color        = C.green
     p.Transparency = 1
     p.Parent       = workspace
 
-    -- SurfaceGui encima con círculo (como MarcaLlegada del juego)
-    local sg = Instance.new("SurfaceGui")
-    sg.Face            = Enum.NormalId.Front
-    sg.SizingMode      = Enum.SurfaceGuiSizingMode.FixedSize
-    sg.CanvasSize      = Vector2.new(64, 64)
-    sg.LightInfluence  = 0
-    sg.AlwaysOnTop     = true
-    sg.Enabled         = false
-    sg.Parent          = p
+    -- SurfaceGui con círculo — igual que MarcaLlegada del juego
+    for _, face in ipairs({Enum.NormalId.Front, Enum.NormalId.Back}) do
+        local sg = Instance.new("SurfaceGui")
+        sg.Face           = face
+        sg.SizingMode     = Enum.SurfaceGuiSizingMode.FixedSize
+        sg.CanvasSize     = Vector2.new(64, 64)
+        sg.LightInfluence = 0
+        sg.AlwaysOnTop    = true
+        sg.Enabled        = false
+        sg.Parent         = p
 
-    local circulo = Instance.new("Frame")
-    circulo.AnchorPoint          = Vector2.new(0.5, 0.5)
-    circulo.Position             = UDim2.fromScale(0.5, 0.5)
-    circulo.Size                 = UDim2.new(1, -8, 1, -8)
-    circulo.BackgroundColor3     = C.green
-    circulo.BackgroundTransparency = 0.4
-    circulo.Parent               = sg
-    Instance.new("UICorner", circulo).CornerRadius = UDim.new(0.5, 0)
+        local circulo = Instance.new("Frame")
+        circulo.AnchorPoint          = Vector2.new(0.5, 0.5)
+        circulo.Position             = UDim2.fromScale(0.5, 0.5)
+        circulo.Size                 = UDim2.new(1, -8, 1, -8)
+        circulo.BackgroundColor3     = C.green
+        circulo.BackgroundTransparency = 0.4
+        circulo.Parent               = sg
+        Instance.new("UICorner", circulo).CornerRadius = UDim.new(0.5, 0)
 
-    local borde = Instance.new("UIStroke")
-    borde.Thickness = 3
-    borde.Color     = C.green
-    borde.Parent    = circulo
-
-    -- Cara trasera también
-    local sg2 = sg:Clone()
-    sg2.Face   = Enum.NormalId.Back
-    sg2.Parent = p
+        local borde = Instance.new("UIStroke")
+        borde.Thickness = 3
+        borde.Color     = C.green
+        borde.Parent    = circulo
+    end
 
     marcaParte = p
 end
@@ -431,15 +430,16 @@ crearMarca()
 local function mostrarMarca(pT, esStrike)
     if not State.pitchPredict or not marcaParte then return end
 
-    -- Posición exacta igual que el juego:
+    -- Mismo posicionamiento que MarcaLlegada nativa del juego:
     -- CFrame.new(pT.X, pT.Y, ZPlato + 0.03)
-    -- Es un plano vertical flotante en la zona de strike del plato
+    -- Rotamos 90° en X para que el Cylinder quede como disco vertical
     marcaParte.CFrame = CFrame.new(pT.X, pT.Y, ZPLATO + 0.03)
-    local col = esStrike and C.green or C.red
-    marcaParte.Color = col
-    marcaParte.Transparency = 0.5
+                      * CFrame.Angles(math.pi/2, 0, 0)
 
-    -- Actualizar color del círculo en la SurfaceGui
+    local col = esStrike and C.green or C.red
+    marcaParte.Color       = col
+    marcaParte.Transparency = 0.4
+
     for _, sg in ipairs(marcaParte:GetChildren()) do
         if sg:IsA("SurfaceGui") then
             sg.Enabled = true
@@ -457,9 +457,7 @@ local function ocultarMarca()
     if not marcaParte then return end
     marcaParte.Transparency = 1
     for _, sg in ipairs(marcaParte:GetChildren()) do
-        if sg:IsA("SurfaceGui") then
-            sg.Enabled = false
-        end
+        if sg:IsA("SurfaceGui") then sg.Enabled = false end
     end
 end
 
@@ -469,19 +467,27 @@ end
 local function hacerSwing(lanz, tipoSwing)
     if not Remote_Swing then return end
     if swingUsado[lanz.id] then return end
+
+    -- Verificar que somos el bateador activo
+    local bateadorId = SMB:GetAttribute("BateadorId")
+    if bateadorId ~= LP.UserId then return end
+
+    -- El juego exige que inicio + 0.1 ya haya pasado antes de swingear
+    local ahora = workspace:GetServerTimeNow()
+    if ahora < lanz.inicio + 0.1 then return end
+
     swingUsado[lanz.id] = true
 
-    -- dt = diferencia entre el momento del swing y el momento perfecto
+    -- dt = diferencia entre ahora y el momento perfecto (inicio + T)
     -- dt = 0 → timing perfecto
-    -- El juego lo calcula como: workspace:GetServerTimeNow() - (lanz.inicio + lanz.T)
-    local ahora = workspace:GetServerTimeNow()
-    local dt    = ahora - (lanz.inicio + lanz.T)
+    local dt = ahora - (lanz.inicio + lanz.T)
 
-    -- x, y = posición donde apunta el bate (pT del lanzamiento = perfecto)
-    local x = lanz.pT.X
-    local y = lanz.pT.Y
+    -- Usar la posición suavizada del aim (aimActual)
+    -- para que siga la pelota sin saltos bruscos
+    local x = aimActual.X
+    local y = aimActual.Y
 
-    -- FireServer(id, dt, x, y, tipo)
+    -- Swing:FireServer(id, dt, x, y, tipo)
     Remote_Swing:FireServer(lanz.id, dt, x, y, tipoSwing or "Normal")
 end
 
@@ -501,13 +507,13 @@ local nombresPosicion = {
     Designado = "🏏 Bateador DH",
 }
 
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(dt)
     -- ── Rol del jugador ───────────────────────────────────
-    local posAttr  = LP:GetAttribute("Posicion")
-    local esBater  = LP:GetAttribute("FaseDuelo") ~= nil
-        and SMB:GetAttribute("BateadorId") == LP.UserId
-    local rolTexto = "Lobby"
-    local rolColor = C.muted
+    local posAttr    = LP:GetAttribute("Posicion")
+    local bateadorId = SMB:GetAttribute("BateadorId")
+    local esBater    = bateadorId == LP.UserId
+    local rolTexto   = "Lobby"
+    local rolColor   = C.muted
 
     if LP:GetAttribute("Espectar") then
         rolTexto = "👁 Espectador"
@@ -524,6 +530,11 @@ RunService.RenderStepped:Connect(function()
     if lanz and lanz.pT and lanz.inicio and lanz.T then
         local ahora     = workspace:GetServerTimeNow()
         local tRestante = (lanz.inicio + lanz.T) - ahora
+
+        -- Suavizar el aim hacia pT para evitar saltos bruscos
+        -- Velocidad de seguimiento: más rápido cuando queda poco tiempo
+        local velLerp = math.clamp(dt * (tRestante < 0.3 and 18 or 8), 0, 1)
+        aimActual = aimActual:Lerp(Vector2.new(lanz.pT.X, lanz.pT.Y), velLerp)
 
         -- UI de pelota
         lbTipo.Text = lanz.tipo or lanz.nombre or "?"
@@ -543,35 +554,39 @@ RunService.RenderStepped:Connect(function()
         lbZona.Text       = esStrike and "🟢 STRIKE — dale!" or "🔴 BOLA — espera"
         lbZona.TextColor3 = esStrike and C.green or C.red
 
-        -- Pitch predictor: mostrar marca en home plate
-        mostrarMarca(lanz.pT, esStrike)
+        -- Pitch predictor: círculo en la posición suavizada
+        mostrarMarca(Vector3.new(aimActual.X, aimActual.Y, ZPLATO), esStrike)
 
         -- Auto Swing
         if State.autoSwing and esBater then
-            -- Swing cuando la pelota está a ~0.08s del plato (timing perfecto)
-            local margen = CFG_BAT.VentanaPerfecta or 0.08
-            if tRestante <= margen and tRestante > -0.1 then
-                -- Elegir tipo de swing: Poder si está en zona, Normal si no
-                local tipoSwing = esStrike and "Poder" or "Normal"
-                hacerSwing(lanz, tipoSwing)
+            local fase = SMB:GetAttribute("FaseDuelo") or LP:GetAttribute("FaseDuelo")
+            local enJuego = (fase == "Lanzando" or fase == "EnVuelo")
+            if enJuego and not swingUsado[lanz.id] then
+                -- Swingear cuando estamos a 1 frame del momento perfecto
+                local margen = CFG_BAT.VentanaPerfecta or 0.08
+                if tRestante <= margen and tRestante > -0.15 then
+                    local tipoSwing = esStrike and "Poder" or "Normal"
+                    hacerSwing(lanz, tipoSwing)
+                end
             end
         end
 
     else
-        -- Sin lanzamiento
-        lbTipo.Text       = "—"
-        lbMph.Text        = "— mph"
-        lbTiempo.Text     = "Esperando pitch..."
+        -- Sin lanzamiento activo
+        lbTipo.Text         = "—"
+        lbMph.Text          = "— mph"
+        lbTiempo.Text       = "Esperando pitch..."
         lbTiempo.TextColor3 = C.muted
-        lbZona.Text       = ""
+        lbZona.Text         = ""
         ocultarMarca()
+        -- Resetear aim al centro de la zona
+        aimActual = Vector2.new(0, (ZONA.yMin + ZONA.yMax) / 2)
     end
 
     -- ── Field Tracker ─────────────────────────────────────
     if State.fieldTrack and posAttr and posAttr ~= "Designado" and not esBater then
-        -- Buscar pelota en el workspace
         local pelotaObj = workspace:FindFirstChild("Pelota")
-            or workspace:FindFirstChild("Ball")
+                       or workspace:FindFirstChild("Ball")
         if pelotaObj and pelotaObj:IsA("BasePart") then
             local char = LP.Character
             local hrp  = char and char:FindFirstChild("HumanoidRootPart")
