@@ -1,63 +1,86 @@
 -- ============================================================
 --   SÚPER MEGA BATEADOR - SCRIPT
 --   Auto Swing · Pitch Predictor · Field Tracker · Panel Pro
+--   Basado en análisis del código fuente del juego
 -- ============================================================
 
-local Players        = game:GetService("Players")
-local RunService     = game:GetService("RunService")
-local TweenService   = game:GetService("TweenService")
-local UIS            = game:GetService("UserInputService")
-local LP             = Players.LocalPlayer
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UIS          = game:GetService("UserInputService")
+local LP           = Players.LocalPlayer
 
 -- ── Esperar recursos del juego ────────────────────────────
-local SMB      = game:GetService("ReplicatedStorage"):WaitForChild("SMB", 15)
-if not SMB then warn("[SMB] ReplicatedStorage.SMB no encontrado"); return end
+local SMB = game:GetService("ReplicatedStorage"):WaitForChild("SMB", 15)
+if not SMB then warn("[SMB] No se encontró ReplicatedStorage.SMB"); return end
 
 local Remotes  = SMB:WaitForChild("Remotes", 10)
 local Pelota   = require(SMB:WaitForChild("Pelota"))
-local Bateo    = require(SMB:WaitForChild("Bateo"))
 local Config   = require(SMB:WaitForChild("Config"))
-
 local CFG_BAT  = Config.BATEO or {}
 local CAM      = workspace.CurrentCamera
 
--- ── Colores del panel ────────────────────────────────────
+-- ── RemoteEvents reales del juego ─────────────────────────
+-- Encontrados en SMB_Duelo.lua del cliente
+local Remote_Lanzamiento = Remotes:WaitForChild("Lanzamiento", 10)
+local Remote_Swing       = Remotes:WaitForChild("Swing", 10)
+
+-- ── Colores ───────────────────────────────────────────────
 local C = {
-    bg       = Color3.fromRGB(10,  13,  22),
-    panel    = Color3.fromRGB(14,  18,  30),
-    header   = Color3.fromRGB(18,  24,  40),
-    border   = Color3.fromRGB(50,  65, 100),
-    accent   = Color3.fromRGB(80, 160, 255),
-    accent2  = Color3.fromRGB(236, 62, 196),
-    green    = Color3.fromRGB(50,  220, 130),
-    yellow   = Color3.fromRGB(244, 196,  72),
-    red      = Color3.fromRGB(235,  55,  55),
-    white    = Color3.fromRGB(230, 236, 250),
-    muted    = Color3.fromRGB(120, 135, 165),
-    dark     = Color3.fromRGB( 6,   8,  15),
+    bg      = Color3.fromRGB(10,  13,  22),
+    panel   = Color3.fromRGB(14,  18,  30),
+    header  = Color3.fromRGB(18,  24,  40),
+    border  = Color3.fromRGB(50,  65, 100),
+    accent  = Color3.fromRGB(80, 160, 255),
+    accent2 = Color3.fromRGB(236, 62, 196),
+    green   = Color3.fromRGB(50,  220, 130),
+    yellow  = Color3.fromRGB(244, 196,  72),
+    red     = Color3.fromRGB(235,  55,  55),
+    white   = Color3.fromRGB(230, 236, 250),
+    muted   = Color3.fromRGB(120, 135, 165),
+    dark    = Color3.fromRGB(6,    8,  15),
 }
 
 -- ── Estado global ─────────────────────────────────────────
 local State = {
-    autoSwing   = false,
-    pitchPredict= true,
-    fieldTrack  = true,
-    lanzActual  = nil,   -- datos del lanzamiento en curso
-    marcaParte  = nil,   -- Part de la marca de caída
-    flechaActive= false,
-    posicion    = nil,   -- posicion del jugador (Pitcher, RightField, etc.)
-    visible     = true,
+    autoSwing    = false,
+    pitchPredict = true,
+    fieldTrack   = true,
+    lanzActual   = nil,   -- datos del lanzamiento en curso (tabla del servidor)
+    swingPendiente = false,
 }
+
+-- ── Variables del lanzamiento actual ──────────────────────
+-- El servidor manda via Remotes.Lanzamiento.OnClientEvent
+-- una tabla con: id, tipo, p0, pT, B, inicio, T, mph, perfecto, etc.
+local lanzActual = nil
+local swingUsado = {}  -- set de ids ya swingueados
+
+-- ============================================================
+--  ESCUCHAR LANZAMIENTO DEL SERVIDOR
+-- ============================================================
+if Remote_Lanzamiento then
+    Remote_Lanzamiento.OnClientEvent:Connect(function(data)
+        if type(data) ~= "table" then return end
+        lanzActual = data
+        -- Limpiar swing usado para este nuevo lanzamiento
+        if data.id then
+            swingUsado[data.id] = nil
+        end
+    end)
+end
 
 -- ============================================================
 --  HELPERS UI
 -- ============================================================
 local function corner(r, p)
-    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,r); c.Parent = p
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r); c.Parent = p
 end
 local function stroke(col, th, tr, p)
     local s = Instance.new("UIStroke")
-    s.Color = col; s.Thickness = th; s.Transparency = tr or 0; s.Parent = p
+    s.Color = col; s.Thickness = th
+    s.Transparency = tr or 0; s.Parent = p
 end
 local function gradient(c1, c2, rot, p)
     local g = Instance.new("UIGradient")
@@ -70,7 +93,7 @@ local function label(props, parent)
     l.Font = Enum.Font.GothamBold
     l.TextColor3 = C.white
     l.TextSize = 13
-    for k,v in pairs(props) do l[k] = v end
+    for k, v in pairs(props) do l[k] = v end
     l.Parent = parent
     return l
 end
@@ -82,43 +105,44 @@ end
 --  CONSTRUIR PANEL
 -- ============================================================
 local Gui = Instance.new("ScreenGui")
-Gui.Name            = "SMB_Hack"
-Gui.ResetOnSpawn    = false
-Gui.IgnoreGuiInset  = true
-Gui.DisplayOrder    = 50
-Gui.Parent          = LP:WaitForChild("PlayerGui")
+Gui.Name           = "SMB_Hack"
+Gui.ResetOnSpawn   = false
+Gui.IgnoreGuiInset = true
+Gui.DisplayOrder   = 50
+Gui.Parent         = LP:WaitForChild("PlayerGui")
 
--- Escala adaptada al tamaño de pantalla
-local Scale = Instance.new("UIScale"); Scale.Parent = Gui
+-- Escala adaptada al tamaño de pantalla (móvil/PC)
+local Scale = Instance.new("UIScale")
+Scale.Parent = Gui
 local function ajustarEscala()
     local vp = CAM.ViewportSize
-    Scale.Scale = math.clamp(math.min(vp.X/420, vp.Y/560), 0.55, 1)
+    Scale.Scale = math.clamp(math.min(vp.X / 420, vp.Y / 580), 0.52, 1)
 end
 ajustarEscala()
 CAM:GetPropertyChangedSignal("ViewportSize"):Connect(ajustarEscala)
 
 -- ── Marco principal ───────────────────────────────────────
 local Main = Instance.new("Frame")
-Main.Name              = "Main"
-Main.AnchorPoint       = Vector2.new(0, 0.5)
-Main.Position          = UDim2.new(0, 10, 0.5, 0)
-Main.Size              = UDim2.fromOffset(210, 340)
-Main.BackgroundColor3  = C.panel
-Main.BorderSizePixel   = 0
-Main.ClipsDescendants  = true
-Main.Parent            = Gui
+Main.Name             = "Main"
+Main.AnchorPoint      = Vector2.new(0, 0.5)
+Main.Position         = UDim2.new(0, 10, 0.5, 0)
+Main.Size             = UDim2.fromOffset(215, 360)
+Main.BackgroundColor3 = C.dark
+Main.BorderSizePixel  = 0
+Main.ClipsDescendants = true
+Main.Parent           = Gui
 corner(14, Main)
 stroke(C.border, 1.5, 0.3, Main)
 
--- Degradado de fondo semi-transparente
-local bgGrad = Instance.new("Frame")
-bgGrad.Size = UDim2.fromScale(1,1)
-bgGrad.BackgroundColor3 = C.dark
-bgGrad.BackgroundTransparency = 0.15
-bgGrad.BorderSizePixel = 0
-bgGrad.Parent = Main
-corner(14, bgGrad)
-gradient(C.bg, Color3.fromRGB(18,28,52), 135, bgGrad)
+-- Fondo degradado semi-transparente
+local bgFrame = Instance.new("Frame")
+bgFrame.Size                = UDim2.fromScale(1, 1)
+bgFrame.BackgroundColor3    = C.panel
+bgFrame.BackgroundTransparency = 0.1
+bgFrame.BorderSizePixel     = 0
+bgFrame.Parent              = Main
+corner(14, bgFrame)
+gradient(C.bg, Color3.fromRGB(16, 24, 48), 145, bgFrame)
 
 -- ── Header ────────────────────────────────────────────────
 local Header = Instance.new("Frame")
@@ -127,17 +151,17 @@ Header.BackgroundColor3= C.header
 Header.BorderSizePixel = 0
 Header.Parent          = Main
 corner(14, Header)
--- borde inferior del header (fix de esquinas redondeadas)
-local hBot = Instance.new("Frame")
-hBot.Size = UDim2.new(1,0,0,8)
-hBot.Position = UDim2.new(0,0,1,-8)
-hBot.BackgroundColor3 = C.header
-hBot.BorderSizePixel = 0
-hBot.Parent = Header
--- línea de acento degradada en header
-local hLine = Instance.new("Frame")
-hLine.Size = UDim2.new(1,0,0,2)
-hLine.Position = UDim2.new(0,0,1,-1)
+
+local hFix = Instance.new("Frame") -- tapa esquinas inf del header
+hFix.Size = UDim2.new(1, 0, 0, 10)
+hFix.Position = UDim2.new(0, 0, 1, -10)
+hFix.BackgroundColor3 = C.header
+hFix.BorderSizePixel = 0
+hFix.Parent = Header
+
+local hLine = Instance.new("Frame") -- línea degradada bajo el header
+hLine.Size = UDim2.new(1, 0, 0, 2)
+hLine.Position = UDim2.new(0, 0, 1, -1)
 hLine.BackgroundColor3 = C.accent
 hLine.BorderSizePixel = 0
 hLine.Parent = Header
@@ -150,10 +174,8 @@ label({
     TextXAlignment = Enum.TextXAlignment.Left,
     Font = Enum.Font.GothamBlack,
     TextSize = 15,
-    TextColor3 = C.white,
 }, Header)
 
--- Botón minimizar
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.fromOffset(28, 28)
 MinBtn.Position = UDim2.new(1, -36, 0.5, -14)
@@ -169,29 +191,29 @@ corner(8, MinBtn)
 -- ── Contenido ─────────────────────────────────────────────
 local Content = Instance.new("Frame")
 Content.Position = UDim2.new(0, 0, 0, 44)
-Content.Size = UDim2.new(1, 0, 1, -44)
+Content.Size     = UDim2.new(1, 0, 1, -44)
 Content.BackgroundTransparency = 1
-Content.Parent = Main
+Content.Parent   = Main
 
 local Layout = Instance.new("UIListLayout")
 Layout.FillDirection = Enum.FillDirection.Vertical
-Layout.Padding = UDim.new(0, 6)
-Layout.Parent = Content
+Layout.Padding       = UDim.new(0, 6)
+Layout.Parent        = Content
 local Pad = Instance.new("UIPadding")
-Pad.PaddingLeft = UDim.new(0,10)
-Pad.PaddingRight = UDim.new(0,10)
-Pad.PaddingTop = UDim.new(0,8)
-Pad.Parent = Content
+Pad.PaddingLeft  = UDim.new(0, 10)
+Pad.PaddingRight = UDim.new(0, 10)
+Pad.PaddingTop   = UDim.new(0, 8)
+Pad.Parent       = Content
 
--- ── Función para crear fila de toggle ──────────────────────
-local function makeToggle(icon, name, state, onChange)
+-- ── Toggle helper ─────────────────────────────────────────
+local function makeToggle(icon, name, initState, onChange)
     local Row = Instance.new("Frame")
     Row.Size = UDim2.new(1, 0, 0, 36)
     Row.BackgroundColor3 = C.header
     Row.BorderSizePixel = 0
     Row.Parent = Content
     corner(8, Row)
-    stroke(C.border, 1, 0.6, Row)
+    stroke(C.border, 1, 0.65, Row)
 
     label({
         Text = icon .. "  " .. name,
@@ -201,24 +223,24 @@ local function makeToggle(icon, name, state, onChange)
         TextSize = 13,
     }, Row)
 
-    -- Toggle pill
     local Pill = Instance.new("Frame")
     Pill.AnchorPoint = Vector2.new(1, 0.5)
-    Pill.Position = UDim2.new(1, -10, 0.5, 0)
-    Pill.Size = UDim2.fromOffset(40, 22)
+    Pill.Position    = UDim2.new(1, -10, 0.5, 0)
+    Pill.Size        = UDim2.fromOffset(40, 22)
     Pill.BorderSizePixel = 0
     Pill.Parent = Row
     corner(11, Pill)
 
     local Dot = Instance.new("Frame")
-    Dot.Size = UDim2.fromOffset(16, 16)
+    Dot.Size        = UDim2.fromOffset(16, 16)
     Dot.AnchorPoint = Vector2.new(0.5, 0.5)
-    Dot.Position = UDim2.new(0, state and 30 or 12, 0.5, 0)
+    Dot.Position    = UDim2.new(0, initState and 30 or 12, 0.5, 0)
     Dot.BackgroundColor3 = C.white
-    Dot.BorderSizePixel = 0
+    Dot.BorderSizePixel  = 0
     Dot.Parent = Pill
     corner(8, Dot)
 
+    local state = initState
     local function refresh(val)
         Pill.BackgroundColor3 = val and C.green or C.border
         tween(Dot, 0.15, { Position = UDim2.new(0, val and 30 or 12, 0.5, 0) })
@@ -226,7 +248,7 @@ local function makeToggle(icon, name, state, onChange)
     refresh(state)
 
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromScale(1,1)
+    btn.Size = UDim2.fromScale(1, 1)
     btn.BackgroundTransparency = 1
     btn.Text = ""
     btn.Parent = Row
@@ -235,19 +257,14 @@ local function makeToggle(icon, name, state, onChange)
         refresh(state)
         onChange(state)
     end)
-
-    return Row, function() return state end
+    return Row
 end
 
--- ── Toggles ───────────────────────────────────────────────
 makeToggle("🏏", "Auto Swing", State.autoSwing, function(v)
     State.autoSwing = v
 end)
 makeToggle("🎯", "Pitch Predictor", State.pitchPredict, function(v)
     State.pitchPredict = v
-    if not v and State.marcaParte then
-        State.marcaParte.Transparency = 1
-    end
 end)
 makeToggle("🧤", "Field Tracker", State.fieldTrack, function(v)
     State.fieldTrack = v
@@ -261,109 +278,75 @@ Sep.BackgroundTransparency = 0.5
 Sep.BorderSizePixel = 0
 Sep.Parent = Content
 
--- ── Bloque de info de pelota ───────────────────────────────
+-- ── Info de pelota ─────────────────────────────────────────
 local InfoBox = Instance.new("Frame")
-InfoBox.Size = UDim2.new(1, 0, 0, 86)
+InfoBox.Size = UDim2.new(1, 0, 0, 92)
 InfoBox.BackgroundColor3 = C.header
 InfoBox.BorderSizePixel = 0
 InfoBox.Parent = Content
 corner(8, InfoBox)
-stroke(C.border, 1, 0.6, InfoBox)
+stroke(C.border, 1, 0.65, InfoBox)
 
-local lbTitulo = label({
-    Text = "PELOTA",
-    Position = UDim2.new(0, 10, 0, 6),
-    Size = UDim2.new(1, -20, 0, 16),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextSize = 10,
-    TextColor3 = C.muted,
-    Font = Enum.Font.GothamBold,
-}, InfoBox)
+label({ Text = "PELOTA", Position = UDim2.new(0,10,0,6),
+    Size = UDim2.new(1,-20,0,14), TextSize=10,
+    TextColor3=C.muted, TextXAlignment=Enum.TextXAlignment.Left }, InfoBox)
 
-local lbTipo = label({
-    Text = "—",
-    Position = UDim2.new(0, 10, 0, 22),
-    Size = UDim2.new(0.6, -10, 0, 22),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextSize = 20,
-    Font = Enum.Font.GothamBlack,
-    TextColor3 = C.accent,
-}, InfoBox)
+local lbTipo = label({ Text = "—",
+    Position = UDim2.new(0,10,0,20), Size = UDim2.new(0.55,0,0,24),
+    Font = Enum.Font.GothamBlack, TextSize = 22,
+    TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left }, InfoBox)
 
-local lbMph = label({
-    Text = "— mph",
-    Position = UDim2.new(0.6, 0, 0, 22),
-    Size = UDim2.new(0.4, -10, 0, 22),
-    TextXAlignment = Enum.TextXAlignment.Right,
-    TextSize = 20,
-    Font = Enum.Font.GothamBlack,
-    TextColor3 = C.yellow,
-}, InfoBox)
+local lbMph = label({ Text = "— mph",
+    Position = UDim2.new(0.55,0,0,20), Size = UDim2.new(0.45,-10,0,24),
+    Font = Enum.Font.GothamBlack, TextSize = 18,
+    TextColor3 = C.yellow, TextXAlignment = Enum.TextXAlignment.Right }, InfoBox)
 
-local lbTiempo = label({
-    Text = "Llegada: —",
-    Position = UDim2.new(0, 10, 0, 46),
-    Size = UDim2.new(1, -20, 0, 16),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextSize = 12,
-    TextColor3 = C.muted,
-}, InfoBox)
+local lbTiempo = label({ Text = "Esperando pitch...",
+    Position = UDim2.new(0,10,0,48), Size = UDim2.new(1,-20,0,16),
+    TextSize = 12, TextColor3 = C.muted,
+    TextXAlignment = Enum.TextXAlignment.Left }, InfoBox)
 
-local lbPosicion = label({
-    Text = "Posición: —",
-    Position = UDim2.new(0, 10, 0, 64),
-    Size = UDim2.new(1, -20, 0, 16),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextSize = 12,
-    TextColor3 = C.muted,
-}, InfoBox)
+local lbZona = label({ Text = "",
+    Position = UDim2.new(0,10,0,66), Size = UDim2.new(1,-20,0,20),
+    Font = Enum.Font.GothamBlack, TextSize = 13,
+    TextXAlignment = Enum.TextXAlignment.Left }, InfoBox)
 
--- ── Bloque de posición del jugador ─────────────────────────
+-- ── Info de rol ────────────────────────────────────────────
 local PosBox = Instance.new("Frame")
-PosBox.Size = UDim2.new(1, 0, 0, 44)
+PosBox.Size = UDim2.new(1, 0, 0, 48)
 PosBox.BackgroundColor3 = C.header
 PosBox.BorderSizePixel = 0
 PosBox.Parent = Content
 corner(8, PosBox)
-stroke(C.border, 1, 0.6, PosBox)
+stroke(C.border, 1, 0.65, PosBox)
 
-label({
-    Text = "MI ROL",
-    Position = UDim2.new(0, 10, 0, 4),
-    Size = UDim2.new(1, -20, 0, 14),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextSize = 10,
-    TextColor3 = C.muted,
-}, PosBox)
+label({ Text = "MI ROL", Position = UDim2.new(0,10,0,5),
+    Size = UDim2.new(1,-20,0,14), TextSize=10,
+    TextColor3=C.muted, TextXAlignment=Enum.TextXAlignment.Left }, PosBox)
 
-local lbRol = label({
-    Text = "Espectador",
-    Position = UDim2.new(0, 10, 0, 18),
-    Size = UDim2.new(1, -20, 0, 20),
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextSize = 14,
-    Font = Enum.Font.GothamBlack,
-    TextColor3 = C.green,
-}, PosBox)
+local lbRol = label({ Text = "—",
+    Position = UDim2.new(0,10,0,20), Size = UDim2.new(1,-20,0,22),
+    Font = Enum.Font.GothamBlack, TextSize = 14,
+    TextColor3 = C.green, TextXAlignment = Enum.TextXAlignment.Left }, PosBox)
 
 -- ── Draggable ─────────────────────────────────────────────
 do
     local drag, ds, sp = false
     Header.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or
-           i.UserInputType == Enum.UserInputType.Touch then
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
             drag = true; ds = i.Position; sp = Main.Position
         end
     end)
     Header.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or
-           i.UserInputType == Enum.UserInputType.Touch then
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
             drag = false
         end
     end)
     UIS.InputChanged:Connect(function(i)
-        if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or
-                     i.UserInputType == Enum.UserInputType.Touch) then
+        if drag and (i.UserInputType == Enum.UserInputType.MouseMovement
+                  or i.UserInputType == Enum.UserInputType.Touch) then
             local d = i.Position - ds
             Main.Position = UDim2.new(
                 sp.X.Scale, sp.X.Offset + d.X,
@@ -377,255 +360,181 @@ local minimized = false
 MinBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
     MinBtn.Text = minimized and "+" or "−"
-    tween(Main, 0.2, { Size = minimized
-        and UDim2.fromOffset(210, 44)
-        or  UDim2.fromOffset(210, 340) })
+    tween(Main, 0.2, {
+        Size = minimized and UDim2.fromOffset(215, 44)
+                          or  UDim2.fromOffset(215, 360)
+    })
 end)
 
 -- ============================================================
 --  MARCA DE CAÍDA (Pitch Predictor)
 -- ============================================================
-local function crearMarca()
-    if State.marcaParte then State.marcaParte:Destroy() end
-    local folder = CAM:FindFirstChild("SMB_Local") or CAM
-    local p = Instance.new("Part")
-    p.Name = "MarcaSMB"
-    p.Anchored = true
-    p.CanCollide = false; p.CanQuery = false; p.CanTouch = false
-    p.CastShadow = false
-    p.Shape = Enum.PartType.Cylinder
-    p.Size = Vector3.new(0.1, 1.2, 1.2)
-    p.Material = Enum.Material.Neon
-    p.Color = C.accent
-    p.Transparency = 1
-    p.Parent = folder
+local marcaParte = nil
 
-    -- aro exterior
+local function crearMarca()
+    if marcaParte then pcall(function() marcaParte:Destroy() end) end
+    local p = Instance.new("Part")
+    p.Name         = "SMBMarca"
+    p.Anchored     = true
+    p.CanCollide   = false
+    p.CanQuery     = false
+    p.CanTouch     = false
+    p.CastShadow   = false
+    p.Shape        = Enum.PartType.Cylinder
+    p.Size         = Vector3.new(0.08, 1.4, 1.4)
+    p.Material     = Enum.Material.Neon
+    p.Color        = C.accent
+    p.Transparency = 1
+    p.Parent       = workspace
+
     local sel = Instance.new("SelectionBox")
-    sel.Adornee = p
-    sel.Color3 = C.accent
-    sel.LineThickness = 0.04
+    sel.Adornee           = p
+    sel.Color3            = C.accent
+    sel.LineThickness     = 0.045
     sel.SurfaceTransparency = 1
     sel.Parent = p
 
-    State.marcaParte = p
-    return p
+    marcaParte = p
 end
 crearMarca()
 
-local function mostrarMarca(pos, esStrike)
-    if not State.pitchPredict or not State.marcaParte then return end
-    local p = State.marcaParte
-    p.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi/2)
-    p.Color = esStrike and C.green or C.red
-    p.Transparency = 0.3
-    local sel = p:FindFirstChildOfClass("SelectionBox")
-    if sel then sel.Color3 = p.Color end
+local function mostrarMarca(pT, esStrike)
+    if not State.pitchPredict or not marcaParte then return end
+    -- pT es Vector3 con X=posición horizontal, Y=altura, Z=ZPlato
+    -- La colocamos en el suelo del campo cerca del home plate
+    local pos = Vector3.new(pT.X, 0.1, pT.Z)
+    marcaParte.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi/2)
+    marcaParte.Color  = esStrike and C.green or C.red
+    marcaParte.Transparency = 0.25
+    local sel = marcaParte:FindFirstChildOfClass("SelectionBox")
+    if sel then sel.Color3 = marcaParte.Color end
 end
 
 local function ocultarMarca()
-    if State.marcaParte then
-        State.marcaParte.Transparency = 1
+    if marcaParte then
+        marcaParte.Transparency = 1
     end
-end
-
--- ============================================================
---  LEER LANZAMIENTO ACTUAL
--- ============================================================
--- El juego guarda los datos del lanzamiento en el LocalPlayer
--- como atributos cuando empieza el duelo.
-local function getLanzamiento()
-    -- Intentar leer de la carpeta SMB_Local en la cámara
-    local folder = CAM:FindFirstChild("SMB_Local")
-    if not folder then return nil end
-
-    -- El lanzamiento viene como atributos del folder
-    local p0 = folder:GetAttribute("p0")
-    local pT = folder:GetAttribute("pT")
-    local B  = folder:GetAttribute("B")
-    local inicio = folder:GetAttribute("inicio")
-    local tipo   = folder:GetAttribute("tipo")
-    local mph    = folder:GetAttribute("mph")
-    local T      = folder:GetAttribute("T")
-
-    if not (p0 and pT and B and inicio) then return nil end
-
-    return {
-        p0 = p0, pT = pT, B = B,
-        inicio = inicio, tipo = tipo or "Recta",
-        mph = mph or 94, T = T or 0.62
-    }
 end
 
 -- ============================================================
 --  AUTO SWING
 -- ============================================================
-local swingRemote = Remotes and Remotes:FindFirstChild("Bateo")
+local function hacerSwing(lanz, tipoSwing)
+    if not Remote_Swing then return end
+    if swingUsado[lanz.id] then return end
+    swingUsado[lanz.id] = true
 
-local function hacerSwing(lanz)
-    if not swingRemote then return end
-    -- Calcular mejor posición para el swing basado en pT
+    -- dt = diferencia entre el momento del swing y el momento perfecto
+    -- dt = 0 → timing perfecto
+    -- El juego lo calcula como: workspace:GetServerTimeNow() - (lanz.inicio + lanz.T)
+    local ahora = workspace:GetServerTimeNow()
+    local dt    = ahora - (lanz.inicio + lanz.T)
+
+    -- x, y = posición donde apunta el bate (pT del lanzamiento = perfecto)
     local x = lanz.pT.X
     local y = lanz.pT.Y
-    local enZona = Pelota.EnZona(x, y)
-    local tipo = "Normal"
-    -- Si está en la zona, usar Poder para más distancia
-    if enZona then tipo = "Poder" end
 
-    swingRemote:FireServer({
-        x      = x,
-        y      = y,
-        tipo   = tipo,
-        zurdo  = false,
-        dt     = 0,       -- timing perfecto
-    })
+    -- FireServer(id, dt, x, y, tipo)
+    Remote_Swing:FireServer(lanz.id, dt, x, y, tipoSwing or "Normal")
 end
 
 -- ============================================================
---  LOOP PRINCIPAL (RenderStepped)
+--  LOOP PRINCIPAL
 -- ============================================================
-local lastLanzId = nil
-local swingScheduled = false
+local nombresPosicion = {
+    Pitcher   = "⚾ Lanzador",
+    Primera   = "1️⃣ Primera Base",
+    Segunda   = "2️⃣ Segunda Base",
+    Tercera   = "3️⃣ Tercera Base",
+    CortoParo = "⚡ Parador Corto",
+    Izquierdo = "⬅ Left Field",
+    Central   = "⬆ Center Field",
+    Derecho   = "➡ Right Field",
+    Receptor  = "🧤 Receptor",
+    Designado = "🏏 Bateador DH",
+}
 
 RunService.RenderStepped:Connect(function()
-    -- ── Actualizar posición del jugador ───────────────────
-    local posAttr = LP:GetAttribute("Posicion")
-    local equipo  = LP:GetAttribute("Equipo")
-    local esBater = LP:GetAttribute("EsBateador") == true
-    local fase    = LP:GetAttribute("FaseDuelo")
-
-    -- Determinar rol legible
+    -- ── Rol del jugador ───────────────────────────────────
+    local posAttr  = LP:GetAttribute("Posicion")
+    local esBater  = LP:GetAttribute("FaseDuelo") ~= nil
+        and SMB:GetAttribute("BateadorId") == LP.UserId
     local rolTexto = "Lobby"
     local rolColor = C.muted
-    if posAttr then
-        local nombres = {
-            Pitcher    = "🏃 Lanzador",
-            Primera    = "1️⃣ Primera Base",
-            Segunda    = "2️⃣ Segunda Base",
-            Tercera    = "3️⃣ Tercera Base",
-            CortoParo  = "⚡ Parador en corto",
-            Izquierdo  = "⬅ Left Field",
-            Central    = "⬆ Center Field",
-            Derecho    = "➡ Right Field",
-            Receptor   = "🧤 Receptor",
-            Designado  = "🏏 Bateador",
-        }
-        rolTexto = nombres[posAttr] or posAttr
-        rolColor = esBater and C.accent or C.green
-    end
+
     if LP:GetAttribute("Espectar") then
         rolTexto = "👁 Espectador"
-        rolColor = C.muted
+    elseif posAttr then
+        rolTexto = nombresPosicion[posAttr] or posAttr
+        rolColor = esBater and C.accent or C.green
     end
-    lbRol.Text = rolTexto
+    lbRol.Text       = rolTexto
     lbRol.TextColor3 = rolColor
 
-    -- ── Leer lanzamiento ──────────────────────────────────
-    local lanz = getLanzamiento()
+    -- ── Lanzamiento activo ────────────────────────────────
+    local lanz = lanzActual
 
-    if lanz then
-        local ahora = workspace:GetServerTimeNow()
+    if lanz and lanz.pT and lanz.inicio and lanz.T then
+        local ahora     = workspace:GetServerTimeNow()
         local tRestante = (lanz.inicio + lanz.T) - ahora
 
-        -- Actualizar UI de pelota
-        lbTipo.Text  = lanz.tipo or "—"
-        lbMph.Text   = (lanz.mph or "—") .. " mph"
+        -- UI de pelota
+        lbTipo.Text = lanz.tipo or lanz.nombre or "?"
+        lbMph.Text  = (lanz.mph or "?") .. " mph"
 
-        if tRestante > 0 then
-            lbTiempo.Text = string.format("Llegada: %.2fs", tRestante)
-            lbTiempo.TextColor3 = tRestante < 0.2 and C.red or
-                                   tRestante < 0.4 and C.yellow or C.green
+        if tRestante > 0.01 then
+            lbTiempo.Text       = string.format("⏱ Llega en %.2fs", tRestante)
+            lbTiempo.TextColor3 = tRestante < 0.2 and C.red
+                               or tRestante < 0.4 and C.yellow
+                               or C.green
         else
-            lbTiempo.Text = "Llegada: ya llegó"
+            lbTiempo.Text       = "✅ Cruzó el plato"
             lbTiempo.TextColor3 = C.muted
         end
 
         local esStrike = Pelota.EnZona(lanz.pT.X, lanz.pT.Y)
-        lbPosicion.Text = "Zona: " .. (esStrike and "✅ STRIKE" or "❌ BOLA")
-        lbPosicion.TextColor3 = esStrike and C.green or C.red
+        lbZona.Text       = esStrike and "🟢 STRIKE — dale!" or "🔴 BOLA — espera"
+        lbZona.TextColor3 = esStrike and C.green or C.red
 
-        -- Mostrar marca de caída
+        -- Pitch predictor: mostrar marca en home plate
         mostrarMarca(lanz.pT, esStrike)
 
-        -- Auto Swing: si es bateador y la pelota está cerca
-        if State.autoSwing and esBater and fase == "Batazo" then
-            if not swingScheduled then
-                swingScheduled = true
-                -- Swing 1 frame antes del momento perfecto
-                local delay = math.max(tRestante - 0.05, 0)
-                task.delay(delay, function()
-                    swingScheduled = false
-                    if State.autoSwing and LP:GetAttribute("FaseDuelo") == "Batazo" then
-                        hacerSwing(lanz)
-                    end
-                end)
+        -- Auto Swing
+        if State.autoSwing and esBater then
+            -- Swing cuando la pelota está a ~0.08s del plato (timing perfecto)
+            local margen = CFG_BAT.VentanaPerfecta or 0.08
+            if tRestante <= margen and tRestante > -0.1 then
+                -- Elegir tipo de swing: Poder si está en zona, Normal si no
+                local tipoSwing = esStrike and "Poder" or "Normal"
+                hacerSwing(lanz, tipoSwing)
             end
         end
 
     else
-        -- Sin lanzamiento activo
-        if lbTipo.Text ~= "—" then
-            lbTipo.Text  = "—"
-            lbMph.Text   = "— mph"
-            lbTiempo.Text = "Esperando lanzamiento..."
-            lbTiempo.TextColor3 = C.muted
-            lbPosicion.Text = ""
-            swingScheduled = false
-            ocultarMarca()
-        end
+        -- Sin lanzamiento
+        lbTipo.Text       = "—"
+        lbMph.Text        = "— mph"
+        lbTiempo.Text     = "Esperando pitch..."
+        lbTiempo.TextColor3 = C.muted
+        lbZona.Text       = ""
+        ocultarMarca()
     end
 
-    -- ── Field Tracker: flecha hacia la pelota ─────────────
-    if State.fieldTrack then
-        local folder = CAM:FindFirstChild("SMB_Local")
-        local pelotaPart = folder and folder:FindFirstChild("Pelota")
-        local marcaPart  = folder and folder:FindFirstChild("MarcaCaida")
-        local target = (marcaPart and marcaPart.Transparency < 1 and marcaPart)
-                    or (pelotaPart and pelotaPart.Transparency < 1 and pelotaPart)
-
-        -- Solo mostrar si eres defensa y no estás bateando
-        local esDefensa = posAttr and posAttr ~= "Designado" and not esBater
-        if target and esDefensa and not LP:GetAttribute("CamRepeticion") then
+    -- ── Field Tracker ─────────────────────────────────────
+    if State.fieldTrack and posAttr and posAttr ~= "Designado" and not esBater then
+        -- Buscar pelota en el workspace
+        local pelotaObj = workspace:FindFirstChild("Pelota")
+            or workspace:FindFirstChild("Ball")
+        if pelotaObj and pelotaObj:IsA("BasePart") then
             local char = LP.Character
             local hrp  = char and char:FindFirstChild("HumanoidRootPart")
             if hrp then
-                local dist = (target.Position - hrp.Position).Magnitude
-                -- El juego ya tiene su propio sistema de flechas (SMB_Flechas)
-                -- Solo actualizamos el label de distancia
-                lbPosicion.Text = string.format("Pelota: %.1f studs", dist)
-                lbPosicion.TextColor3 = dist < 20 and C.yellow or C.muted
+                local dist = (pelotaObj.Position - hrp.Position).Magnitude
+                lbTiempo.Text       = string.format("🏃 Pelota: %.1f studs", dist)
+                lbTiempo.TextColor3 = dist < 15 and C.yellow or C.muted
             end
         end
     end
 end)
 
--- ============================================================
---  ESCUCHAR EVENTOS DEL SERVIDOR
--- ============================================================
--- El juego emite los datos del lanzamiento via RemoteEvent "Bateo"
--- al bateador cuando el pitcher lanza.
-if Remotes then
-    local bateoRemote = Remotes:FindFirstChild("Bateo")
-    if bateoRemote and bateoRemote:IsA("RemoteEvent") then
-        bateoRemote.OnClientEvent:Connect(function(data)
-            if type(data) ~= "table" then return end
-            -- El servidor manda los datos del lanzamiento
-            if data.p0 and data.pT and data.B then
-                State.lanzActual = data
-                -- Guardar en atributos del folder para que el loop los lea
-                local folder = CAM:FindFirstChild("SMB_Local")
-                if folder then
-                    folder:SetAttribute("p0",    data.p0)
-                    folder:SetAttribute("pT",    data.pT)
-                    folder:SetAttribute("B",     data.B)
-                    folder:SetAttribute("inicio",data.inicio or workspace:GetServerTimeNow())
-                    folder:SetAttribute("tipo",  data.tipo or "Recta")
-                    folder:SetAttribute("mph",   data.mph or 94)
-                    folder:SetAttribute("T",     data.T or 0.62)
-                end
-            end
-        end)
-    end
-end
-
-print("[SMB Hack] Cargado correctamente ✅")
+print("[SMB Hack] ✅ Cargado — Auto Swing, Pitch Predictor y Field Tracker activos")
