@@ -265,10 +265,26 @@ DumpBtn.MouseButton1Click:Connect(function()
 
     setStatus("Dumpeando " .. total .. " scripts...", Color3.fromRGB(255, 200, 50))
 
-    for i, obj in ipairs(scripts) do
-        local ok, source = pcall(function() return obj.Source end)
+    local hasDecompile = type(decompile) == "function"
 
-        if ok and source and source ~= "" then
+    for i, obj in ipairs(scripts) do
+        local source = nil
+
+        -- Intentar Source normal primero
+        local ok, result = pcall(function() return obj.Source end)
+        if ok and result and result ~= "" then
+            source = result
+        end
+
+        -- Si no tiene Source, intentar decompile
+        if not source and hasDecompile then
+            local dok, dresult = pcall(decompile, obj)
+            if dok and dresult and dresult ~= "" then
+                source = dresult
+            end
+        end
+
+        if source then
             local relativePath = sanitizePath(obj:GetFullName():gsub("%.", "/"))
             local fullFolder = folderName .. "/" .. (relativePath:match("(.+)/[^/]+$") or "")
             ensureFolders(fullFolder)
