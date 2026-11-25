@@ -472,23 +472,22 @@ local function hacerSwing(lanz, tipoSwing)
     local bateadorId = SMB:GetAttribute("BateadorId")
     if bateadorId ~= LP.UserId then return end
 
-    -- El juego exige que inicio + 0.1 ya haya pasado antes de swingear
+    -- El juego exige que inicio + 0.1 ya haya pasado
     local ahora = workspace:GetServerTimeNow()
     if ahora < lanz.inicio + 0.1 then return end
 
     swingUsado[lanz.id] = true
 
-    -- dt = diferencia entre ahora y el momento perfecto (inicio + T)
     -- dt = 0 → timing perfecto
     local dt = ahora - (lanz.inicio + lanz.T)
 
-    -- Usar la posición suavizada del aim (aimActual)
-    -- para que siga la pelota sin saltos bruscos
-    local x = aimActual.X
-    local y = aimActual.Y
+    -- Para jonrón mandamos pT EXACTO (no el aim suavizado)
+    -- Esto garantiza calidad = 1.0 y disparo máximo
+    local x = lanz.pT.X
+    local y = lanz.pT.Y
 
     -- Swing:FireServer(id, dt, x, y, tipo)
-    Remote_Swing:FireServer(lanz.id, dt, x, y, tipoSwing or "Normal")
+    Remote_Swing:FireServer(lanz.id, dt, x, y, tipoSwing or "Poder")
 end
 
 -- ============================================================
@@ -562,9 +561,11 @@ RunService.RenderStepped:Connect(function(dt)
             local fase = SMB:GetAttribute("FaseDuelo") or LP:GetAttribute("FaseDuelo")
             local enJuego = (fase == "Lanzando" or fase == "EnVuelo")
             if enJuego and not swingUsado[lanz.id] then
-                -- Swingear cuando estamos a 1 frame del momento perfecto
-                local margen = CFG_BAT.VentanaPerfecta or 0.08
-                if tRestante <= margen and tRestante > -0.15 then
+                -- Swingear exactamente cuando tRestante cruza 0 = dt perfecto
+                -- RenderStepped corre a ~60fps, 1 frame = ~0.016s
+                if tRestante <= 0.016 and tRestante > -0.1 then
+                    -- Strikes con Poder = jonrón garantizado
+                    -- Bolas con Normal = no desperdiciar swing
                     local tipoSwing = esStrike and "Poder" or "Normal"
                     hacerSwing(lanz, tipoSwing)
                 end
