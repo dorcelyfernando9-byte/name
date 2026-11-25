@@ -263,27 +263,26 @@ DumpBtn.MouseButton1Click:Connect(function()
         return
     end
 
-    setStatus("Dumpeando " .. total .. " scripts...", Color3.fromRGB(255, 200, 50))
+    -- Correr en thread separado para no bloquear el juego
+    task.spawn(function()
 
+    setStatus("Dumpeando " .. total .. " scripts...", Color3.fromRGB(255, 200, 50))
     local hasDecompile = type(decompile) == "function"
 
-    -- Procesar en lotes de 3 con pausa entre cada lote
-    -- Esto evita que el CPU se sature y mantiene los FPS
-    local LOTE = 3
-    local PAUSA = 0.05 -- segundos entre lotes
+    -- Lote grande sin pausa = rápido
+    -- task.wait() solo para actualizar la UI cada 50 scripts
+    local LOTE_UI = 50
 
     local i = 0
     for _, obj in ipairs(scripts) do
         i = i + 1
         local source = nil
 
-        -- Source normal primero (rápido)
         local ok, result = pcall(function() return obj.Source end)
         if ok and result and result ~= "" then
             source = result
         end
 
-        -- Decompile solo si no hay Source (pesado)
         if not source and hasDecompile then
             local dok, dresult = pcall(decompile, obj)
             if dok and dresult and dresult ~= "" then
@@ -297,23 +296,19 @@ DumpBtn.MouseButton1Click:Connect(function()
             ensureFolders(fullFolder)
             local filename = folderName .. "/" .. relativePath .. ".lua"
             local writeOk = pcall(writefile, filename, source)
-            if writeOk then
-                dumped = dumped + 1
-            else
-                failed = failed + 1
-            end
+            if writeOk then dumped = dumped + 1 else failed = failed + 1 end
         else
             failed = failed + 1
         end
 
-        -- Actualizar UI cada lote
-        if i % LOTE == 0 then
+        -- Actualizar UI y respirar cada 50 scripts
+        if i % LOTE_UI == 0 then
             setProgress(i, total)
             CountLabel.Text = "Scripts: " .. dumped .. " | Fallidos: " .. failed
-            task.wait(PAUSA) -- dar respiro al CPU entre lotes
+            task.wait() -- 1 solo frame de respiro
         end
     end
-    -- Actualizar UI final
+
     setProgress(total, total)
     CountLabel.Text = "Scripts: " .. dumped .. " | Fallidos: " .. failed
 
@@ -329,4 +324,6 @@ DumpBtn.MouseButton1Click:Connect(function()
         DumpBtn.Text = "✗ ERROR AL GUARDAR"
         BarFill.BackgroundColor3 = Color3.fromRGB(220, 80, 80)
     end
+
+    end) -- cerrar task.spawn
 end)
