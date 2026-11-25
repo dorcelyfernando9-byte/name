@@ -267,16 +267,23 @@ DumpBtn.MouseButton1Click:Connect(function()
 
     local hasDecompile = type(decompile) == "function"
 
-    for i, obj in ipairs(scripts) do
+    -- Procesar en lotes de 3 con pausa entre cada lote
+    -- Esto evita que el CPU se sature y mantiene los FPS
+    local LOTE = 3
+    local PAUSA = 0.05 -- segundos entre lotes
+
+    local i = 0
+    for _, obj in ipairs(scripts) do
+        i = i + 1
         local source = nil
 
-        -- Intentar Source normal primero
+        -- Source normal primero (rápido)
         local ok, result = pcall(function() return obj.Source end)
         if ok and result and result ~= "" then
             source = result
         end
 
-        -- Si no tiene Source, intentar decompile
+        -- Decompile solo si no hay Source (pesado)
         if not source and hasDecompile then
             local dok, dresult = pcall(decompile, obj)
             if dok and dresult and dresult ~= "" then
@@ -299,10 +306,16 @@ DumpBtn.MouseButton1Click:Connect(function()
             failed = failed + 1
         end
 
-        setProgress(i, total)
-        CountLabel.Text = "Scripts: " .. dumped .. " | Fallidos: " .. failed
-        if i % 10 == 0 then task.wait() end
+        -- Actualizar UI cada lote
+        if i % LOTE == 0 then
+            setProgress(i, total)
+            CountLabel.Text = "Scripts: " .. dumped .. " | Fallidos: " .. failed
+            task.wait(PAUSA) -- dar respiro al CPU entre lotes
+        end
     end
+    -- Actualizar UI final
+    setProgress(total, total)
+    CountLabel.Text = "Scripts: " .. dumped .. " | Fallidos: " .. failed
 
     -- Resultado final
     if dumped > 0 then
