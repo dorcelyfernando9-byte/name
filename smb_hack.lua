@@ -371,8 +371,15 @@ end)
 -- ============================================================
 local marcaParte = nil
 
+-- ZPlato = 1.2 (del módulo Pelota del juego)
+-- La marca se posiciona en CFrame.new(pT.X, pT.Y, ZPlato + 0.03)
+-- igual que la MarcaLlegada nativa del juego
+local ZPLATO = Pelota.ZPlato or 1.2
+
 local function crearMarca()
     if marcaParte then pcall(function() marcaParte:Destroy() end) end
+
+    -- Part principal — disco fino vertical en el plato
     local p = Instance.new("Part")
     p.Name         = "SMBMarca"
     p.Anchored     = true
@@ -381,18 +388,41 @@ local function crearMarca()
     p.CanTouch     = false
     p.CastShadow   = false
     p.Shape        = Enum.PartType.Cylinder
-    p.Size         = Vector3.new(0.08, 1.4, 1.4)
+    -- RadioVisual * 2 = 0.6 studs de diámetro (igual que el juego)
+    p.Size         = Vector3.new(0.06, 0.7, 0.7)
     p.Material     = Enum.Material.Neon
-    p.Color        = C.accent
+    p.Color        = C.green
     p.Transparency = 1
     p.Parent       = workspace
 
-    local sel = Instance.new("SelectionBox")
-    sel.Adornee           = p
-    sel.Color3            = C.accent
-    sel.LineThickness     = 0.045
-    sel.SurfaceTransparency = 1
-    sel.Parent = p
+    -- SurfaceGui encima con círculo (como MarcaLlegada del juego)
+    local sg = Instance.new("SurfaceGui")
+    sg.Face            = Enum.NormalId.Front
+    sg.SizingMode      = Enum.SurfaceGuiSizingMode.FixedSize
+    sg.CanvasSize      = Vector2.new(64, 64)
+    sg.LightInfluence  = 0
+    sg.AlwaysOnTop     = true
+    sg.Enabled         = false
+    sg.Parent          = p
+
+    local circulo = Instance.new("Frame")
+    circulo.AnchorPoint          = Vector2.new(0.5, 0.5)
+    circulo.Position             = UDim2.fromScale(0.5, 0.5)
+    circulo.Size                 = UDim2.new(1, -8, 1, -8)
+    circulo.BackgroundColor3     = C.green
+    circulo.BackgroundTransparency = 0.4
+    circulo.Parent               = sg
+    Instance.new("UICorner", circulo).CornerRadius = UDim.new(0.5, 0)
+
+    local borde = Instance.new("UIStroke")
+    borde.Thickness = 3
+    borde.Color     = C.green
+    borde.Parent    = circulo
+
+    -- Cara trasera también
+    local sg2 = sg:Clone()
+    sg2.Face   = Enum.NormalId.Back
+    sg2.Parent = p
 
     marcaParte = p
 end
@@ -400,19 +430,36 @@ crearMarca()
 
 local function mostrarMarca(pT, esStrike)
     if not State.pitchPredict or not marcaParte then return end
-    -- pT es Vector3 con X=posición horizontal, Y=altura, Z=ZPlato
-    -- La colocamos en el suelo del campo cerca del home plate
-    local pos = Vector3.new(pT.X, 0.1, pT.Z)
-    marcaParte.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi/2)
-    marcaParte.Color  = esStrike and C.green or C.red
-    marcaParte.Transparency = 0.25
-    local sel = marcaParte:FindFirstChildOfClass("SelectionBox")
-    if sel then sel.Color3 = marcaParte.Color end
+
+    -- Posición exacta igual que el juego:
+    -- CFrame.new(pT.X, pT.Y, ZPlato + 0.03)
+    -- Es un plano vertical flotante en la zona de strike del plato
+    marcaParte.CFrame = CFrame.new(pT.X, pT.Y, ZPLATO + 0.03)
+    local col = esStrike and C.green or C.red
+    marcaParte.Color = col
+    marcaParte.Transparency = 0.5
+
+    -- Actualizar color del círculo en la SurfaceGui
+    for _, sg in ipairs(marcaParte:GetChildren()) do
+        if sg:IsA("SurfaceGui") then
+            sg.Enabled = true
+            local f = sg:FindFirstChildOfClass("Frame")
+            if f then
+                f.BackgroundColor3 = col
+                local s = f:FindFirstChildOfClass("UIStroke")
+                if s then s.Color = col end
+            end
+        end
+    end
 end
 
 local function ocultarMarca()
-    if marcaParte then
-        marcaParte.Transparency = 1
+    if not marcaParte then return end
+    marcaParte.Transparency = 1
+    for _, sg in ipairs(marcaParte:GetChildren()) do
+        if sg:IsA("SurfaceGui") then
+            sg.Enabled = false
+        end
     end
 end
 
