@@ -106,15 +106,20 @@ class SimulatedGame:
         hrp = self._make("Part", "HumanoidRootPart", char)
         hrp.Position = {"X": 0, "Y": 5, "Z": 0}
 
-        # ReplicatedStorage con RemoteEvents típicos de baseball
+        # ReplicatedStorage con estructura SMB real
         rs = self._make("ReplicatedStorage", "ReplicatedStorage")
-        remotes = self._make("Folder", "Remotes", rs)
-        self._make("RemoteEvent", "SwingBat", remotes)
-        self._make("RemoteEvent", "PitchBall", remotes)
-        self._make("RemoteEvent", "CatchBall", remotes)
-        self._make("RemoteEvent", "UpdateScore", remotes)
-        self._make("RemoteFunction", "GetBallPosition", remotes)
-        self._make("RemoteFunction", "GetGameState", remotes)
+        smb = self._make("Folder", "SMB", rs)
+        remotes = self._make("Folder", "Remotes", smb)
+        self._make("RemoteEvent", "Bateo", remotes)
+        self._make("RemoteEvent", "ABS", remotes)
+        self._make("RemoteEvent", "Zona", remotes)
+        # Módulos simulados con Source básico
+        pelota_m = self._make("ModuleScript", "Pelota", smb)
+        pelota_m.Source = "return { EnZona=function(x,y) return math.abs(x)<1.4 and y>1.5 and y<4.3 end, ZPlato=1.2, Salida=Vector3.new(1.5,6.2,55) }"
+        bateo_m = self._make("ModuleScript", "Bateo", smb)
+        bateo_m.Source = "return { contacto=function() return 0.9, true, 0 end }"
+        config_m = self._make("ModuleScript", "Config", smb)
+        config_m.Source = "return { BATEO={ VentanaContacto=0.3, RadioContacto=1.25, VentanaPerfecta=0.08, RadioPerfecto=0.5, VelocidadBase=120, VelocidadExtra=40, ElevacionBase=18, ElevacionPorStud=1.5, PerfectoVelocidad=15, PerfectoElevacion=8, DireccionMaxima=22, ContactoFuerte={Desde=0.7,Hasta=1,Velocidad=8,Elevacion=4} }, EQUIPO={ EfectoContacto=0.08, EfectoPoder=0.06 }, LANZAMIENTO={} }"
 
         # LocalScripts simulados
         sc = self._make("Folder", "StarterPlayerScripts")
@@ -243,6 +248,19 @@ class RobloxScriptTester:
         g.print = self._log
         g.warn = self._warn
 
+        # RunService stub
+        lua.execute("""
+            RunService = {
+                RenderStepped = { Connect = function(self, fn) end },
+                Heartbeat = { Connect = function(self, fn) end },
+                Stepped = { Connect = function(self, fn) end },
+                BindToRenderStep = function(self, name, prio, fn) end,
+                UnbindFromRenderStep = function(self, name) end,
+                IsClient = function(self) return true end,
+                IsServer = function(self) return false end,
+            }
+        """)
+
         # task
         lua.execute("""
             task = {
@@ -270,14 +288,17 @@ class RobloxScriptTester:
 
         # game:GetService
         def get_service(_, name):
-            # Servicios con stubs especiales en Lua
             lua_services = {
                 "MarketplaceService", "TweenService", "UserInputService",
-                "Players", "ReplicatedStorage", "Workspace"
+                "Players", "ReplicatedStorage", "Workspace", "RunService"
             }
             if name in lua_services:
-                result = lua.eval(name)
-                return result
+                try:
+                    result = lua.eval(name)
+                    if result is not None:
+                        return result
+                except:
+                    pass
             svc = game_sim.GetService(name)
             t = lua.table()
             t.Name = svc.Name
@@ -316,18 +337,135 @@ class RobloxScriptTester:
             return game_sim.HttpGet(url)
         g.game.HttpGet = http_get
 
-        # Players.LocalPlayer simulado
+        # WaitForChild en game directamente
+        def wait_for_child(_, name, timeout=None):
+            # Buscar en servicios
+            svc = game_sim.GetService(name)
+            if svc:
+                t = lua.table()
+                t.Name = svc.Name
+                t.ClassName = svc.ClassName
+                def wfc_inner(_, n, to=None):
+                    child = svc.FindFirstChild(n)
+                    if child:
+                        ct = lua.table()
+                        ct.Name = child.Name
+                        ct.ClassName = child.ClassName
+                        ct.Source = child.Source
+                        def wfc2(_, n2, to2=None): return lua.table()
+                        ct.WaitForChild = wfc2
+                        ct.FindFirstChild = lambda _, n2: None
+                        ct.GetAttribute = lambda _, k: None
+                        ct.SetAttribute = lambda _, k, v: None
+                        ct.GetChildren = lambda _: lua.table()
+                        ct.GetDescendants = lambda _: lua.table()
+                        ct.IsA = lambda _, cn: cn == child.ClassName
+                        ct.OnClientEvent = lua.table()
+                        ct.OnClientEvent.Connect = lambda _, fn: None
+                        ct.FireServer = lambda _, *a: None
+                        return ct
+                    return lua.table()
+                t.WaitForChild = wfc_inner
+                t.FindFirstChild = lambda _, n: None
+                t.GetAttribute = lambda _, k: None
+                t.SetAttribute = lambda _, k, v: None
+                return t
+            return lua.table()
+        g.game.WaitForChild = wait_for_child
+
+        # ReplicatedStorage con SMB simulado en Lua
+        lua.execute("""
+            ReplicatedStorage = {
+                Name = "ReplicatedStorage",
+                ClassName = "ReplicatedStorage",
+                WaitForChild = function(self, name, timeout)
+                    if name == "SMB" then
+                        return {
+                            Name = "SMB",
+                            WaitForChild = function(self2, n, t)
+                                local stubs = {
+                                    Pelota = { Name="Pelota", ClassName="ModuleScript" },
+                                    Bateo  = { Name="Bateo",  ClassName="ModuleScript" },
+                                    Config = { Name="Config", ClassName="ModuleScript" },
+                                    Remotes = {
+                                        Name="Remotes", ClassName="Folder",
+                                        WaitForChild = function(self3, n2, t2)
+                                            return {
+                                                Name=n2, ClassName="RemoteEvent",
+                                                OnClientEvent = { Connect = function(self4, fn) end },
+                                                FireServer = function(self4, ...) end,
+                                                IsA = function(self4, cn) return cn == "RemoteEvent" end,
+                                                FindFirstChild = function(self4, n3) return nil end,
+                                            }
+                                        end,
+                                        FindFirstChild = function(self3, n2)
+                                            return {
+                                                Name=n2, ClassName="RemoteEvent",
+                                                OnClientEvent = { Connect = function(self4, fn) end },
+                                                FireServer = function(self4, ...) end,
+                                                IsA = function(self4, cn) return cn == "RemoteEvent" end,
+                                            }
+                                        end,
+                                    },
+                                }
+                                local s = stubs[n]
+                                if s then
+                                    if not s.WaitForChild then
+                                        s.WaitForChild = function(self3, n2, t2)
+                                            return { Name=n2, ClassName="ModuleScript", WaitForChild=function() return {} end }
+                                        end
+                                    end
+                                    if not s.GetAttribute then s.GetAttribute = function() return nil end end
+                                    if not s.SetAttribute then s.SetAttribute = function() end end
+                                    return s
+                                end
+                                return { Name=n, WaitForChild=function() return {} end, GetAttribute=function() return nil end, SetAttribute=function() end, FindFirstChild=function() return nil end }
+                            end,
+                            FindFirstChild = function(self2, n)
+                                return nil
+                            end,
+                            GetAttribute = function(self2, k) return nil end,
+                            SetAttribute = function(self2, k, v) end,
+                        }
+                    end
+                    return { Name=name, WaitForChild=function() return {} end, FindFirstChild=function() return nil end, GetAttribute=function() return nil end }
+                end,
+                FindFirstChild = function(self, name) return nil end,
+            }
+        """)
         lua.execute("""
             Players = {
                 LocalPlayer = {
                     Name = "TestPlayer",
                     UserId = 12345,
-                    PlayerGui = { Name = "PlayerGui", ClassName = "PlayerGui" },
+                    Team = nil,
+                    PlayerGui = {
+                        Name = "PlayerGui", ClassName = "PlayerGui",
+                        WaitForChild = function(self, n, t) return { Name=n } end,
+                        FindFirstChild = function(self, n) return nil end,
+                        GetChildren = function(self) return {} end,
+                    },
                     Character = {
                         Name = "Character",
-                        HumanoidRootPart = { Position = { X=0, Y=5, Z=0 } }
-                    }
-                }
+                        FindFirstChild = function(self, n)
+                            if n == "HumanoidRootPart" then
+                                return { Position = Vector3.new(0,5,0), ClassName="Part" }
+                            end
+                            return nil
+                        end,
+                        FindFirstChildOfClass = function(self, cn) return nil end,
+                    },
+                    WaitForChild = function(self, n, t)
+                        if self[n] then return self[n] end
+                        return { Name=n, GetChildren=function() return {} end }
+                    end,
+                    GetAttribute = function(self, k) return nil end,
+                    SetAttribute = function(self, k, v) end,
+                    GetAttributeChangedSignal = function(self, k)
+                        return { Connect = function(self2, fn) end }
+                    end,
+                },
+                GetPlayers = function(self) return {} end,
             }
         """)
 
@@ -376,31 +514,32 @@ class RobloxScriptTester:
             end
         """)
 
-        # UDim2, Color3, Vector3, etc. (stubs)
+        # Enum stubs ampliados
         lua.execute("""
-            UDim2 = {
-                new = function(xs, xo, ys, yo)
-                    return { X={Scale=xs,Offset=xo}, Y={Scale=ys,Offset=yo} }
-                end
-            }
-            Color3 = {
-                fromRGB = function(r,g,b) return {R=r/255,G=g/255,B=b/255} end,
-                new = function(r,g,b) return {R=r,G=g,B=b} end,
-            }
-            Vector3 = {
-                new = function(x,y,z) return {X=x,Y=y,Z=z} end
-            }
-            UDim = {
-                new = function(s,o) return {Scale=s,Offset=o} end
-            }
             Enum = {
-                Font = { GothamBold="GothamBold", Gotham="Gotham", Arial="Arial" },
+                Font = { GothamBold="GothamBold", Gotham="Gotham", Arial="Arial", GothamBlack="GothamBlack", GothamMedium="GothamMedium" },
                 TextXAlignment = { Left="Left", Center="Center", Right="Right" },
+                TextYAlignment = { Top="Top", Center="Center", Bottom="Bottom" },
                 TextTruncate = { AtEnd="AtEnd", None="None" },
                 ZIndexBehavior = { Sibling="Sibling", Global="Global" },
-                KeyCode = { Space=57, E=18, Q=16 },
-                UserInputType = { MouseButton1=0, MouseMoved=1, Touch=2 },
+                KeyCode = { Space=57, E=18, Q=16, C=46, ButtonY=0 },
+                UserInputType = { MouseButton1=0, MouseMovement=1, Touch=2, MouseButton2=3 },
                 NormalId = { Front=0, Back=1, Left=2, Right=3 },
+                EasingStyle = { Quad=0, Back=1, Linear=2 },
+                EasingDirection = { Out=0, In=1, InOut=2 },
+                FillDirection = { Vertical=0, Horizontal=1 },
+                HorizontalAlignment = { Center=0, Left=1, Right=2 },
+                VerticalAlignment = { Center=0, Top=1, Bottom=2 },
+                SortOrder = { LayoutOrder=0, Name=1 },
+                CameraType = { Custom=0, Scriptable=1 },
+                Material = { Neon=0, SmoothPlastic=1 },
+                PartType = { Ball=0, Cylinder=1, Block=2 },
+                RaycastFilterType = { Exclude=0, Include=1 },
+                RenderPriority = { Last = { Value = 500 } },
+                ScaleType = { Fit=0, Crop=1, Stretch=2 },
+                ApplyStrokeMode = { Border=0, Contextual=1 },
+                InfoType = { GamePass=0, Asset=1 },
+                SurfaceGuiSizingMode = { FixedSize=0, PixelsPerStud=1 },
             }
             TweenInfo = {
                 new = function(t, style, dir, rep, rev, delay)
@@ -410,12 +549,98 @@ class RobloxScriptTester:
             math.huge = 1/0
         """)
 
-        # TweenService stub
+        # UDim2, Color3, Vector3, UDim stubs
+        lua.execute("""
+            UDim2 = {}
+            UDim2.new = function(xs, xo, ys, yo)
+                return { X={Scale=xs,Offset=xo}, Y={Scale=ys,Offset=yo} }
+            end
+            UDim2.fromOffset = function(x, y)
+                return UDim2.new(0, x, 0, y)
+            end
+            UDim2.fromScale = function(x, y)
+                return UDim2.new(x, 0, y, 0)
+            end
+            Color3 = {
+                fromRGB = function(r,g,b) return {R=r/255,G=g/255,B=b/255} end,
+                new = function(r,g,b) return {R=r,G=g,B=b} end,
+            }
+            Vector3 = {
+                new = function(x,y,z) return {X=x or 0,Y=y or 0,Z=z or 0, Magnitude=math.sqrt((x or 0)^2+(y or 0)^2+(z or 0)^2)} end
+            }
+            Vector2 = {
+                new = function(x,y) return {X=x or 0,Y=y or 0, Magnitude=math.sqrt((x or 0)^2+(y or 0)^2)} end
+            }
+            UDim = {
+                new = function(s,o) return {Scale=s,Offset=o} end
+            }
+            CFrame = {
+                new = function(x,y,z) return {X=x,Y=y,Z=z} end,
+                lookAt = function(a,b) return {from=a,to=b} end,
+                Angles = function(x,y,z) return {rx=x,ry=y,rz=z} end,
+            }
+            ColorSequence = {
+                new = function(a, b)
+                    if b then return {c1=a,c2=b}
+                    else return {colors=a} end
+                end
+            }
+            ColorSequenceKeypoint = {
+                new = function(t,c) return {time=t,color=c} end
+            }
+            NumberSequence = {
+                new = function(a,b) return {a=a,b=b} end
+            }
+            RaycastParams = {
+                new = function()
+                    return {
+                        FilterType = nil,
+                        FilterDescendantsInstances = {}
+                    }
+                end
+            }
+        """)
         lua.execute("""
             TweenService = {
                 Create = function(self, inst, info, props)
-                    return { Play = function(self) end }
+                    return { Play = function(self2) end }
                 end
+            }
+        """)
+
+        # workspace stub
+        lua.execute("""
+            workspace = {
+                Name = "Workspace",
+                ClassName = "Workspace",
+                CurrentCamera = {
+                    Name = "Camera",
+                    ClassName = "Camera",
+                    ViewportSize = Vector2.new(1920, 1080),
+                    CFrame = CFrame.new(0,10,-20),
+                    CameraType = "Custom",
+                    FieldOfView = 70,
+                    CameraSubject = nil,
+                    WaitForChild = function(self, n, t) return nil end,
+                    FindFirstChild = function(self, n) return nil end,
+                    GetChildren = function(self) return {} end,
+                    GetDescendants = function(self) return {} end,
+                    GetPropertyChangedSignal = function(self, p)
+                        return { Connect = function(self2, fn) end }
+                    end,
+                    WorldToViewportPoint = function(self, pos)
+                        return Vector3.new(960, 540, 1), true
+                    end,
+                    PointToObjectSpace = function(self, pos)
+                        return Vector3.new(0, 0, -10)
+                    end,
+                },
+                GetServerTimeNow = function(self) return os.clock() end,
+                FindFirstChild = function(self, n) return nil end,
+                WaitForChild = function(self, n, t) return nil end,
+                GetChildren = function(self) return {} end,
+                GetDescendants = function(self) return {} end,
+                Raycast = function(self, origin, dir, params) return nil end,
             }
         """)
 
@@ -433,15 +658,75 @@ class RobloxScriptTester:
             UserInputService = {
                 TouchEnabled = false,
                 KeyboardEnabled = true,
+                GamepadEnabled = false,
+                MouseIconEnabled = true,
                 InputChanged = { Connect = function(self, fn) end },
                 InputBegan  = { Connect = function(self, fn) end },
                 InputEnded  = { Connect = function(self, fn) end },
+                GetMouseLocation = function(self) return Vector2.new(0,0) end,
             }
         """)
 
-        # pcall / type / tostring ya vienen en Lua, pero aseguramos table.unpack
+        # require simulado para ModuleScripts de SMB
+        lua.execute("""
+            local _origRequire = require
+            require = function(mod)
+                if type(mod) ~= "table" then return _origRequire(mod) end
+                local name = mod.Name or ""
+                if name == "Pelota" then
+                    return {
+                        EnZona = function(x, y) return math.abs(x)<1.4 and y>1.5 and y<4.3 end,
+                        ZPlato = 1.2, ZGuante = -3.6,
+                        Salida = Vector3.new(1.5, 6.2, 55),
+                        Zona = { xMin=-1.4, xMax=1.4, yMin=1.5, yMax=4.3 },
+                        RadioVisual = 0.3, RadioBola = 0.3,
+                        Lanzamientos = {
+                            Recta  = { mph=94, T=0.62, quiebre=Vector2.new(0.25,-0.8) },
+                            Sinker = { mph=91, T=0.65, quiebre=Vector2.new(1.2,-1.8) },
+                            Slider = { mph=85, T=0.70, quiebre=Vector2.new(-1.5,-1.6) },
+                            Curva  = { mph=77, T=0.79, quiebre=Vector2.new(-0.7,-3.1) },
+                            Cambio = { mph=83, T=0.72, quiebre=Vector2.new(0.9,-2.1) },
+                        },
+                        Orden = {"Recta","Sinker","Slider","Curva","Cambio"},
+                        Pos = function(lanz, t)
+                            local v = math.clamp((t - lanz.inicio) / lanz.T, 0, 1)
+                            return lanz.p0
+                        end,
+                        HoraGuante = function(lanz) return lanz.inicio + lanz.T end,
+                        DistanciaZona = function(x,y) return 0 end,
+                        EsFair = function(pos) return true end,
+                        Horizontal = function(pos) return 100 end,
+                        Angulo = function(pos) return 0 end,
+                        Simular = function(pos, vel) return { puntos={pos}, aterrizaje=pos, evento="Suelo", duracion=3, final=pos } end,
+                    }
+                elseif name == "Bateo" then
+                    return {
+                        contacto = function(lanz, swing, q) return 0.9, true, 0 end,
+                        batear = function(...) return { puntos={}, aterrizaje=Vector3.new(0,0,100), evento="Suelo", duracion=3, final=Vector3.new(0,0,100) }, 25, 85 end,
+                        SWING = { Normal={ventana=1,alcance=1,fuerza=1}, Poder={ventana=0.72,alcance=0.78,fuerza=1.12}, Toque={ventana=2.4,alcance=1.1,fuerza=0} },
+                    }
+                elseif name == "Config" then
+                    return {
+                        BATEO = {
+                            VentanaContacto=0.3, RadioContacto=1.25,
+                            VentanaPerfecta=0.08, RadioPerfecto=0.5,
+                            VelocidadBase=120, VelocidadExtra=40,
+                            ElevacionBase=18, ElevacionPorStud=1.5,
+                            PerfectoVelocidad=15, PerfectoElevacion=8,
+                            DireccionMaxima=22, AbiertoDesde=15, AbiertoPerdida=0.0055,
+                            ContactoFuerte={Desde=0.7,Hasta=1,Velocidad=8,Elevacion=4},
+                        },
+                        EQUIPO = { EfectoContacto=0.08, EfectoPoder=0.06 },
+                        LANZAMIENTO = {},
+                    }
+                end
+                return {}
+            end
+        """)
         lua.execute("""
             if not table.unpack then table.unpack = unpack end
+            math.clamp = math.clamp or function(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+            math.sign  = math.sign  or function(v) return v > 0 and 1 or v < 0 and -1 or 0 end
         """)
 
     def test_script(self, script_content, script_name="test_script.lua"):
