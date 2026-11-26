@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>OAuth Callback</title></head>
+<body>
+<h2>Código de autorización:</h2>
+<p id="code" style="font-family:monospace;font-size:20px;background:#eee;padding:10px"></p>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  document.getElementById('code').textContent = code || 'No se recibió código';
+</script>
+</body>
+</html>
