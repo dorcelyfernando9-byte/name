@@ -172,27 +172,27 @@ local function sanitizeName(path)
 end
 
 local function sendToAPI(name, source)
+    local body = HttpService:JSONEncode({
+        name     = name,
+        content  = source,
+        encoding = "plain"
+    })
+
+    -- Delta usa httpRequest o request
+    local req = httpRequest or request or (syn and syn.request) or (http and http.request)
+    if not req then
+        return false, "no http function"
+    end
+
     local ok, err = pcall(function()
-        local body = HttpService:JSONEncode({
-            name     = name,
-            content  = source,
-            encoding = "plain"
+        req({
+            Url     = API_URL,
+            Method  = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body    = body
         })
-        game:HttpGet(API_URL) -- dummy para activar HttpService
-        local req = (request or http_request or (syn and syn.request))
-        if req then
-            req({
-                Url    = API_URL,
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body   = body
-            })
-        else
-            -- Fallback: HttpPost si existe
-            game:GetService("HttpService"):PostAsync(API_URL, body, Enum.HttpContentType.ApplicationJson)
-        end
     end)
-    return ok
+    return ok, err
 end
 
 DumpBtn.MouseButton1Click:Connect(function()
@@ -221,6 +221,15 @@ DumpBtn.MouseButton1Click:Connect(function()
         local sent   = 0
         local failed = 0
         local hasDecompile = type(decompile) == "function"
+
+        -- Debug: detectar qué función HTTP tiene Delta
+        local httpFn = httpRequest or request or (syn and syn.request) or (http and http.request)
+        if not httpFn then
+            setStatus("ERROR: Delta no tiene función HTTP", Color3.fromRGB(220, 80, 80))
+            DumpBtn.Text = "✗ SIN HTTP"
+            DumpBtn.BackgroundColor3 = Color3.fromRGB(220, 80, 80)
+            return
+        end
 
         setStatus("Enviando " .. total .. " scripts a Render...", Color3.fromRGB(80, 160, 255))
 
