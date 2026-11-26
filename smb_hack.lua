@@ -254,8 +254,9 @@ local function crearMarca()
     p.CanQuery     = false
     p.CanTouch     = false
     p.CastShadow   = false
-    p.Shape        = Enum.PartType.Cylinder
-    p.Size         = Vector3.new(0.06, 0.72, 0.72)
+    -- Plano fino vertical, sin rotación — queda de frente al bateador
+    p.Shape        = Enum.PartType.Block
+    p.Size         = Vector3.new(0.72, 0.72, 0.04)
     p.Material     = Enum.Material.Neon
     p.Color        = C.green
     p.Transparency = 1
@@ -273,12 +274,13 @@ local function crearMarca()
         local circ = Instance.new("Frame", sg)
         circ.AnchorPoint          = Vector2.new(0.5, 0.5)
         circ.Position             = UDim2.fromScale(0.5, 0.5)
-        circ.Size                 = UDim2.new(1, -8, 1, -8)
+        circ.Size                 = UDim2.new(1, -4, 1, -4)
         circ.BackgroundColor3     = C.green
-        circ.BackgroundTransparency = 0.4
+        circ.BackgroundTransparency = 0.5
         corner(32, circ)
         local b = Instance.new("UIStroke", circ)
-        b.Thickness = 3; b.Color = C.green
+        b.Thickness = 4; b.Color = C.green
+        b.Transparency = 0
     end
     marcaParte = p
 end
@@ -286,10 +288,11 @@ crearMarca()
 
 local function mostrarMarca(x, y, esStrike)
     if not State.pitchPredict or not marcaParte then return end
-    marcaParte.CFrame = CFrame.new(x, y, ZPLATO + 0.03) * CFrame.Angles(math.pi/2, 0, 0)
+    -- Sin rotación — el Part queda plano de frente al bateador
+    marcaParte.CFrame = CFrame.new(x, y, ZPLATO + 0.03)
     local col = esStrike and C.green or C.red
     marcaParte.Color        = col
-    marcaParte.Transparency = 0.4
+    marcaParte.Transparency = 0.5
     for _, sg in ipairs(marcaParte:GetChildren()) do
         if sg:IsA("SurfaceGui") then
             sg.Enabled = true
