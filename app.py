@@ -46,6 +46,14 @@ def files():
             result.append(str(f.relative_to(DUMP_DIR)))
     return jsonify({"files": result})
 
-if __name__ == "__main__":
+@app.route("/clear", methods=["POST"])
+def clear():
+    import shutil
+    if DUMP_DIR.exists():
+        shutil.rmtree(DUMP_DIR)
+    DUMP_DIR.mkdir(exist_ok=True)
+    return jsonify({"ok": True, "message": "cleared"})
+
+
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
