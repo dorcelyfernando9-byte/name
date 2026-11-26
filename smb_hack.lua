@@ -395,6 +395,32 @@ RunService.RenderStepped:Connect(function(dt)
         ocultarMarca()
         aimActual = Vector2.new(0, (ZONA.yMin + ZONA.yMax) / 2)
     end
+    -- ── Field Tracker ─────────────────────────────────────
+    if State.fieldTrack then
+        local posAttr    = LP:GetAttribute("Posicion")
+        local bateadorId = SMB:GetAttribute("BateadorId")
+        local esBater    = bateadorId == LP.UserId
+        local esDefensa  = posAttr and posAttr ~= "Designado" and not esBater
+
+        if esDefensa and not LP:GetAttribute("CamRepeticion") then
+            -- La pelota vive en CurrentCamera/SMB_Local/Pelota o MarcaCaida
+            local smbLocal  = CAM:FindFirstChild("SMB_Local")
+            local marcaCaida = smbLocal and smbLocal:FindFirstChild("MarcaCaida")
+            local pelotaPart = smbLocal and smbLocal:FindFirstChild("Pelota")
+            local target = (marcaCaida and marcaCaida.Transparency < 1 and marcaCaida)
+                        or (pelotaPart and pelotaPart.Transparency < 1 and pelotaPart)
+
+            if target then
+                local char = LP.Character
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local dist = (target.Position - hrp.Position).Magnitude
+                    lbTiempo.Text       = string.format("🏃 %.1f studs", dist)
+                    lbTiempo.TextColor3 = dist < 15 and C.yellow or C.muted
+                end
+            end
+        end
+    end
 end)
 
 print("[SMB] ✅ Cargado")
