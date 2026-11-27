@@ -411,17 +411,25 @@ RunService.RenderStepped:Connect(function(dt)
         -- Pitch predictor
         mostrarMarca(aimActual.X, aimActual.Y, esStrike)
 
-        -- Auto swing — SOLO STRIKES (incluye jaula de práctica)
+        -- Auto swing — SOLO STRIKES (juego real + jaula de práctica)
         if State.autoSwing then
             local bateadorId = SMB:GetAttribute("BateadorId")
             local esBater    = bateadorId == LP.UserId
             local fase       = SMB:GetAttribute("FaseDuelo") or LP:GetAttribute("FaseDuelo")
             local enJuego    = fase == "Lanzando" or fase == "EnVuelo"
-            local esPractica = not esBater and Remote_SwingPrac ~= nil and (fase == "Practica" or fase == "Jaula")
+            -- FIX: en la jaula el atributo real es LP:GetAttribute("EnJaula") == true
+            local enJaula    = LP:GetAttribute("EnJaula") == true or LP:GetAttribute("En1v1") == true
+            local esPractica = enJaula and Remote_SwingPrac ~= nil
 
-            if (esBater and enJuego or esPractica) and not swingUsado[lanz.id] then
+            if esBater and enJuego and not swingUsado[lanz.id] then
+                -- Modo partido real
                 if tRestante <= 0.04 and tRestante > -0.1 then
-                    hacerSwing(lanz, esPractica)
+                    hacerSwing(lanz, false)
+                end
+            elseif esPractica and not swingUsado[lanz.id] then
+                -- Modo jaula: swing cuando el lanzamiento está por llegar
+                if tRestante <= 0.15 and tRestante > -0.2 then
+                    hacerSwing(lanz, true)
                 end
             end
         end
@@ -438,32 +446,48 @@ RunService.RenderStepped:Connect(function(dt)
         aimActual = Vector2.new(0, (ZONA.yMin + ZONA.yMax) / 2)
     end
     -- ── Field Tracker + Auto-Field ────────────────────────
+    -- FIX: SMB_Local vive en workspace.CurrentCamera como hijo directo
+    --      La pelota puede estar en workspace también (Part "Pelota" o "BatazoFX")
+    --      MarcaCaida es un Cylinder Neon que aparece antes del impacto
     if State.fieldTrack or State.autoField then
         local posAttr    = LP:GetAttribute("Posicion")
         local bateadorId = SMB:GetAttribute("BateadorId")
         local esBater    = bateadorId == LP.UserId
-        local esDefensa  = posAttr and posAttr ~= "Designado" and not esBater
+        -- No requiere posición específica: cualquier jugador no bateador puede usar field tracker
+        local esDefensa  = not esBater
 
         if esDefensa and not LP:GetAttribute("CamRepeticion") then
-            -- La pelota vive en CurrentCamera/SMB_Local/Pelota o MarcaCaida
-            local smbLocal   = CAM:FindFirstChild("SMB_Local")
+            -- Buscar SMB_Local en CurrentCamera (donde el juego lo crea)
+            local smbLocal = CAM:FindFirstChild("SMB_Local")
+
+            -- Buscar la pelota — puede ser Pelota (en vuelo) o MarcaCaida (cayendo)
             local marcaCaida = smbLocal and smbLocal:FindFirstChild("MarcaCaida")
             local pelotaPart = smbLocal and smbLocal:FindFirstChild("Pelota")
-            local target = (marcaCaida and marcaCaida.Transparency < 1 and marcaCaida)
-                        or (pelotaPart and pelotaPart.Transparency < 1 and pelotaPart)
+
+            -- También buscar directamente en workspace (algunas versiones la ponen ahí)
+            local pelotaWS = workspace:FindFirstChild("Pelota") or workspace:FindFirstChild("BatazoFX")
+
+            -- Preferir MarcaCaida (posición de caída predicha) sobre pelota en vuelo
+            local target = (marcaCaida and marcaCaida.Transparency < 0.99 and marcaCaida)
+                        or (pelotaPart and pelotaPart.Transparency < 0.99 and pelotaPart)
+                        or pelotaWS
 
             if target then
                 local char = LP.Character
                 local hrp  = char and char:FindFirstChild("HumanoidRootPart")
                 local hum  = char and char:FindFirstChildOfClass("Humanoid")
                 if hrp then
-                    local dist = (target.Position - hrp.Position).Magnitude
-                    if State.fieldTrack then
-                        lbTiempo.Text       = string.format("🏃 %.1f studs", dist)
-                        lbTiempo.TextColor3 = dist < 15 and C.yellow or C.muted
-                    end
-                    if State.autoField and hum and dist > 2.5 then
-                        hum:MoveTo(target.Position)
+                    local tPos = target:IsA("BasePart") and target.Position
+                              or (target.PrimaryPart and target.PrimaryPart.Position)
+                    if tPos then
+                        local dist = (tPos - hrp.Position).Magnitude
+                        if State.fieldTrack then
+                            lbTiempo.Text       = string.format("🏃 %.1f studs", dist)
+                            lbTiempo.TextColor3 = dist < 15 and C.yellow or C.muted
+                        end
+                        if State.autoField and hum and dist > 2.5 then
+                            hum:MoveTo(tPos)
+                        end
                     end
                 end
             end
