@@ -72,7 +72,7 @@ BallHolder.ChildAdded:Connect(function(child)
     if child.Name == "Baseball" or child:IsA("BasePart") then
         ballPart  = child
         swingDone = false
-        print("[SB] Pelota detectada:", child.Name)
+        lbDebug.Text = "Ball: " .. child.Name
     end
 end)
 
@@ -80,7 +80,7 @@ BallHolder.ChildRemoved:Connect(function(child)
     if child == ballPart then
         ballPart  = nil
         swingDone = false
-        print("[SB] Pelota removida")
+        lbDebug.Text = "Ball removed"
     end
 end)
 
@@ -93,10 +93,12 @@ task.spawn(function()
     if pitching then
         strikeZone = pitching:WaitForChild("StrikeZone", 10)
         if strikeZone then
-            print("[SB] StrikeZone encontrada:", strikeZone:GetFullName())
-            print("[SB] StrikeZone Size:", strikeZone.Size)
-            print("[SB] StrikeZone Position:", strikeZone.Position)
+            lbDebug.Text = "SZ OK"
+        else
+            lbDebug.Text = "No SZ"
         end
+    else
+        lbDebug.Text = "No Pitching"
     end
     platesFolder = workspace:WaitForChild("Plates", 10)
 end)
@@ -176,13 +178,24 @@ lbZona.Parent = Circle
 
 local lbDist = Instance.new("TextLabel")
 lbDist.Size = UDim2.new(1, -8, 0, 14)
-lbDist.Position = UDim2.new(0, 4, 0, 80)
+lbDist.Position = UDim2.new(0, 4, 0, 78)
 lbDist.BackgroundTransparency = 1
 lbDist.Font = Enum.Font.Gotham
-lbDist.TextSize = 10
+lbDist.TextSize = 9
 lbDist.TextColor3 = C.muted
 lbDist.Text = "esperando..."
 lbDist.Parent = Circle
+
+-- Label de debug
+local lbDebug = Instance.new("TextLabel")
+lbDebug.Size = UDim2.new(1, -8, 0, 12)
+lbDebug.Position = UDim2.new(0, 4, 0, 92)
+lbDebug.BackgroundTransparency = 1
+lbDebug.Font = Enum.Font.GothamMono
+lbDebug.TextSize = 8
+lbDebug.TextColor3 = C.accent
+lbDebug.Text = "..."
+lbDebug.Parent = Circle
 
 -- ── Botones debajo del círculo ─────────────────────────────
 local BtnRow = Instance.new("Frame")
@@ -357,30 +370,33 @@ end
 -- ============================================================
 local function hacerSwing(ball)
     if not Remote_SwingBat then 
-        warn("[SB] No hay Remote_SwingBat")
+        lbDebug.Text = "No Remote"
         return 
     end
     if swingDone then 
-        print("[SB] Ya se swingueó")
+        lbDebug.Text = "Already swung"
         return 
     end
 
     -- Verificar que somos el bateador activo
     local currentBatter = GameVals and GameVals:FindFirstChild("CurrentBatter")
     if currentBatter and currentBatter.Value ~= LP then 
-        print("[SB] No somos el bateador")
+        lbDebug.Text = "Not batter"
         return 
     end
 
     swingDone = true
-    print("[SB] 🏏 Ejecutando swing!")
+    lbDebug.Text = "SWING!"
+    lbDebug.TextColor3 = C.green
 
     local ballPos = ball.Position
     local dir     = ball:GetAttribute("Direction") or Vector3.new(0, 0, -1)
 
-    -- SwingBat:FireServer(aimPos, ballPos, direction, hitType)
-    -- aimPos = misma posición de la pelota = hit perfecto
     Remote_SwingBat:FireServer(ballPos, ballPos, dir, "Power")
+    
+    task.delay(0.5, function()
+        lbDebug.TextColor3 = C.accent
+    end)
 end
 
 -- ============================================================
@@ -400,10 +416,7 @@ RunService.RenderStepped:Connect(function(dt)
         local ballPos   = ball.Position
         local isStrike_ = esStrike(ballPos)
 
-        -- Debug cada 60 frames
-        if math.random() < 0.016 then
-            print("[SB] Ball:", ball.Name, "Pos:", ballPos, "Strike:", isStrike_)
-        end
+        lbDebug.Text = string.format("%s z:%.1f", ball.Name, ballPos.Z)
 
         -- Suavizar aim
         aimActual = aimActual:Lerp(ballPos, math.clamp(dt * 10, 0, 1))
@@ -432,11 +445,10 @@ RunService.RenderStepped:Connect(function(dt)
 
         -- Auto Swing — solo strikes
         if State.autoSwing and isStrike_ and not swingDone then
-            -- Swingear cuando la pelota está cerca del plato
             if strikeZone then
                 local dist = math.abs(ballPos.Z - strikeZone.Position.Z)
+                lbDebug.Text = string.format("d:%.1f S:%s", dist, isStrike_ and "Y" or "N")
                 if dist < 8 then
-                    print("[SB] Distancia al plato:", dist, "— Swing!")
                     hacerSwing(ball)
                 end
             end
