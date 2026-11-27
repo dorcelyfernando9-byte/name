@@ -55,26 +55,30 @@ local function stroke(col, th, p)
     s.Color = col; s.Thickness = th
 end
 
--- ── Escuchar pelota del servidor ──────────────────────────
--- PitchBall manda la BasePart de la pelota
-Remote_PitchBall.OnClientEvent:Connect(function(ball)
-    if ball and ball:IsA("BasePart") and not ball:GetAttribute("Fake") then
-        ballPart  = ball
+-- ── Encontrar BallHolder y pelota ─────────────────────────
+local BallHolder = workspace:WaitForChild("BallHolder", 10)
+if not BallHolder then 
+    warn("[SB] No se encontró BallHolder")
+    return
+end
+
+-- Monitorear pelota en BallHolder
+local function buscarPelota()
+    return BallHolder:FindFirstChild("Baseball") or BallHolder:FindFirstChildOfClass("Part")
+end
+
+-- Listener cuando aparece/desaparece pelota
+BallHolder.ChildAdded:Connect(function(child)
+    if child.Name == "Baseball" or child:IsA("BasePart") then
+        ballPart  = child
         swingDone = false
     end
 end)
 
--- Si la pelota se destruye/sale, limpiar
--- También monitorear BallHolder
-task.spawn(function()
-    local BallHolder = workspace:WaitForChild("BallHolder", 10)
-    if BallHolder then
-        BallHolder.ChildRemoved:Connect(function(child)
-            if child == ballPart then
-                ballPart  = nil
-                swingDone = false
-            end
-        end)
+BallHolder.ChildRemoved:Connect(function(child)
+    if child == ballPart then
+        ballPart  = nil
+        swingDone = false
     end
 end)
 
@@ -363,6 +367,11 @@ end
 local aimActual = Vector3.new(0, 3, 0)
 
 RunService.RenderStepped:Connect(function(dt)
+    -- Buscar pelota activa si no hay una
+    if not (ballPart and ballPart.Parent) then
+        ballPart = buscarPelota()
+    end
+
     local ball = ballPart
 
     if ball and ball.Parent then
