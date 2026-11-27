@@ -35,7 +35,7 @@ local CONFIG = CARPETA .. "/config.json"
 local INDICE = CARPETA .. "/indice.json"
 local API = "https://api.jamendo.com/v3.0"
 local PORTAL = "https://devportal.jamendo.com"
-local YT_API = "http://swichert.wisp.uno:12119"
+local YT_API = "https://swichert.wisp.uno"
 local VOL_MAX = 2 -- volumen máximo (1 = 100%; por encima amplifica y puede distorsionar)
 
 local Players = game:GetService("Players")
