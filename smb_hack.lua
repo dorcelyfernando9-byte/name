@@ -20,9 +20,16 @@ local Config           = require(SMB:WaitForChild("Config"))
 local CFG_BAT          = Config.BATEO or {}
 local Remote_Lanzamiento = Remotes:WaitForChild("Lanzamiento", 10)
 local Remote_Swing       = Remotes:WaitForChild("Swing", 10)
+local Remote_SwingPrac   = Remotes:FindFirstChild("SwingPractica")
+local Remote_Lanzar      = Remotes:FindFirstChild("Lanzar")
 
 local ZPLATO = Pelota.ZPlato or 1.2
 local ZONA   = Pelota.Zona or { xMin=-1.4, xMax=1.4, yMin=1.5, yMax=4.3 }
+
+-- ── Constantes Home Run (Config.BATEO / Bateo) ───────────
+-- Offset -0.26 studs mantiene RadioPerfecto (<=0.35), da ~26.8° de elevación
+-- y con dt=0 + "Poder" (1.06x vel) maximiza la probabilidad de jonrón.
+local HR_ELEV_OFFSET = 0.26
 
 -- ── Estado ───────────────────────────────────────────────
 local lanzActual  = nil
@@ -30,8 +37,10 @@ local swingUsado  = {}
 local aimActual   = Vector2.new(0, (ZONA.yMin + ZONA.yMax) / 2)
 local State = {
     autoSwing    = false,
+    perfectPitch = false,
     pitchPredict = true,
     fieldTrack   = true,
+    autoField    = false,
 }
 
 -- ── Lanzamiento del servidor ──────────────────────────────
@@ -149,7 +158,7 @@ lbTiempo.Parent               = Circle
 local BtnRow = Instance.new("Frame")
 BtnRow.AnchorPoint      = Vector2.new(0.5, 0)
 BtnRow.Position         = UDim2.new(0.5, 0, 1, 8)
-BtnRow.Size             = UDim2.fromOffset(120, 30)
+BtnRow.Size             = UDim2.fromOffset(170, 30)
 BtnRow.BackgroundTransparency = 1
 BtnRow.Parent           = Circle
 
@@ -183,8 +192,10 @@ local function makeBtn(icon, active, onClick)
 end
 
 local btnSwing,  getSwing  = makeBtn("🏏", State.autoSwing,    function(v) State.autoSwing = v end)
+local btnPitch,  getPitch  = makeBtn("⚡", State.perfectPitch, function(v) State.perfectPitch = v end)
 local btnPredict,getPredict= makeBtn("🎯", State.pitchPredict, function(v) State.pitchPredict = v end)
 local btnField,  getField  = makeBtn("🧤", State.fieldTrack,   function(v) State.fieldTrack = v end)
+local btnRun,    getRun    = makeBtn("🏃", State.autoField,    function(v) State.autoField = v end)
 
 -- ── Botón candado (bloquear movimiento) ───────────────────
 local locked = false
@@ -315,23 +326,50 @@ local function ocultarMarca()
 end
 
 -- ============================================================
---  AUTO SWING — SOLO STRIKES
+--  PERFECT PITCH HOOK (105 MPH + 0 Dispersión)
 -- ============================================================
-local function hacerSwing(lanz)
-    if not Remote_Swing then return end
+if hookmetamethod and getnamecallmethod then
+    pcall(function()
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            if State.perfectPitch and method == "FireServer" and Remote_Lanzar and self == Remote_Lanzar then
+                local args = { ... }
+                -- Lanzar:FireServer(tipo, x, y, precision, potencia, ...)
+                if #args >= 5 then
+                    args[4] = 1 -- precision = 1.0 (>= 0.93 activa perfecto = true, 105 mph)
+                    args[5] = 1 -- potencia = 1.0 (máxima velocidad)
+                    return oldNamecall(self, table.unpack(args))
+                end
+            end
+            return oldNamecall(self, ...)
+        end)
+    end)
+end
+
+-- ============================================================
+--  AUTO SWING — MODO JONRÓN (Solo Strikes, dt = 0, Sweet Spot)
+-- ============================================================
+local function hacerSwing(lanz, esPractica)
+    local remote = esPractica and Remote_SwingPrac or Remote_Swing
+    if not remote then return end
     if swingUsado[lanz.id] then return end
-    if SMB:GetAttribute("BateadorId") ~= LP.UserId then return end
+    if not esPractica and SMB:GetAttribute("BateadorId") ~= LP.UserId then return end
 
     local ahora = workspace:GetServerTimeNow()
-    if ahora < lanz.inicio + 0.1 then return end
+    if ahora < lanz.inicio + 0.08 then return end
 
     -- Solo swingear si es STRIKE
     local esStrike = Pelota.EnZona(lanz.pT.X, lanz.pT.Y)
-    if not esStrike then return end  -- ignorar bolas completamente
+    if not esStrike then return end
 
     swingUsado[lanz.id] = true
-    local dt = ahora - (lanz.inicio + lanz.T)
-    Remote_Swing:FireServer(lanz.id, dt, lanz.pT.X, lanz.pT.Y, "Poder")
+
+    -- Apuntar ligeramente debajo del centro (HR_ELEV_OFFSET) para ángulo óptimo ~26.8°
+    -- manteniendo RadioPerfecto (<= 0.35) y dt = 0 exacto
+    local aimX = lanz.pT.X
+    local aimY = lanz.pT.Y - HR_ELEV_OFFSET
+    remote:FireServer(lanz.id, 0, aimX, aimY, "Poder")
 end
 
 -- ============================================================
@@ -373,16 +411,17 @@ RunService.RenderStepped:Connect(function(dt)
         -- Pitch predictor
         mostrarMarca(aimActual.X, aimActual.Y, esStrike)
 
-        -- Auto swing — SOLO STRIKES
+        -- Auto swing — SOLO STRIKES (incluye jaula de práctica)
         if State.autoSwing then
             local bateadorId = SMB:GetAttribute("BateadorId")
             local esBater    = bateadorId == LP.UserId
             local fase       = SMB:GetAttribute("FaseDuelo") or LP:GetAttribute("FaseDuelo")
             local enJuego    = fase == "Lanzando" or fase == "EnVuelo"
+            local esPractica = not esBater and Remote_SwingPrac ~= nil and (fase == "Practica" or fase == "Jaula")
 
-            if esBater and enJuego and not swingUsado[lanz.id] then
-                if tRestante <= 0.016 and tRestante > -0.1 then
-                    hacerSwing(lanz)
+            if (esBater and enJuego or esPractica) and not swingUsado[lanz.id] then
+                if tRestante <= 0.04 and tRestante > -0.1 then
+                    hacerSwing(lanz, esPractica)
                 end
             end
         end
@@ -398,8 +437,8 @@ RunService.RenderStepped:Connect(function(dt)
         ocultarMarca()
         aimActual = Vector2.new(0, (ZONA.yMin + ZONA.yMax) / 2)
     end
-    -- ── Field Tracker ─────────────────────────────────────
-    if State.fieldTrack then
+    -- ── Field Tracker + Auto-Field ────────────────────────
+    if State.fieldTrack or State.autoField then
         local posAttr    = LP:GetAttribute("Posicion")
         local bateadorId = SMB:GetAttribute("BateadorId")
         local esBater    = bateadorId == LP.UserId
@@ -407,7 +446,7 @@ RunService.RenderStepped:Connect(function(dt)
 
         if esDefensa and not LP:GetAttribute("CamRepeticion") then
             -- La pelota vive en CurrentCamera/SMB_Local/Pelota o MarcaCaida
-            local smbLocal  = CAM:FindFirstChild("SMB_Local")
+            local smbLocal   = CAM:FindFirstChild("SMB_Local")
             local marcaCaida = smbLocal and smbLocal:FindFirstChild("MarcaCaida")
             local pelotaPart = smbLocal and smbLocal:FindFirstChild("Pelota")
             local target = (marcaCaida and marcaCaida.Transparency < 1 and marcaCaida)
@@ -416,14 +455,20 @@ RunService.RenderStepped:Connect(function(dt)
             if target then
                 local char = LP.Character
                 local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                local hum  = char and char:FindFirstChildOfClass("Humanoid")
                 if hrp then
                     local dist = (target.Position - hrp.Position).Magnitude
-                    lbTiempo.Text       = string.format("🏃 %.1f studs", dist)
-                    lbTiempo.TextColor3 = dist < 15 and C.yellow or C.muted
+                    if State.fieldTrack then
+                        lbTiempo.Text       = string.format("🏃 %.1f studs", dist)
+                        lbTiempo.TextColor3 = dist < 15 and C.yellow or C.muted
+                    end
+                    if State.autoField and hum and dist > 2.5 then
+                        hum:MoveTo(target.Position)
+                    end
                 end
             end
         end
     end
 end)
 
-print("[SMB] ✅ Cargado")
+print("[SMB] ✅ Cargado — HR AutoSwing · Perfect Pitch · Field Tracker")
