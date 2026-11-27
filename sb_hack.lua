@@ -72,6 +72,7 @@ BallHolder.ChildAdded:Connect(function(child)
     if child.Name == "Baseball" or child:IsA("BasePart") then
         ballPart  = child
         swingDone = false
+        print("[SB] Pelota detectada:", child.Name)
     end
 end)
 
@@ -79,16 +80,25 @@ BallHolder.ChildRemoved:Connect(function(child)
     if child == ballPart then
         ballPart  = nil
         swingDone = false
+        print("[SB] Pelota removida")
     end
 end)
 
 -- ── Strike Zone ───────────────────────────────────────────
 local strikeZone = nil
+local platesFolder = nil
+
 task.spawn(function()
     local pitching = workspace:WaitForChild("Pitching", 10)
     if pitching then
         strikeZone = pitching:WaitForChild("StrikeZone", 10)
+        if strikeZone then
+            print("[SB] StrikeZone encontrada:", strikeZone:GetFullName())
+            print("[SB] StrikeZone Size:", strikeZone.Size)
+            print("[SB] StrikeZone Position:", strikeZone.Position)
+        end
     end
+    platesFolder = workspace:WaitForChild("Plates", 10)
 end)
 
 -- Verificar si la pelota está en la zona de strike
@@ -97,8 +107,10 @@ local function esStrike(ballPos)
     local sz     = strikeZone
     local local_ = sz.CFrame:PointToObjectSpace(ballPos)
     local half   = sz.Size / 2
-    return math.abs(local_.X) <= half.X
-       and math.abs(local_.Y) <= half.Y
+    local dentro = math.abs(local_.X) <= half.X
+                and math.abs(local_.Y) <= half.Y
+                and math.abs(local_.Z) <= half.Z
+    return dentro
 end
 
 -- ============================================================
@@ -344,14 +356,24 @@ end
 --  AUTO SWING
 -- ============================================================
 local function hacerSwing(ball)
-    if not Remote_SwingBat then return end
-    if swingDone then return end
+    if not Remote_SwingBat then 
+        warn("[SB] No hay Remote_SwingBat")
+        return 
+    end
+    if swingDone then 
+        print("[SB] Ya se swingueó")
+        return 
+    end
 
     -- Verificar que somos el bateador activo
     local currentBatter = GameVals and GameVals:FindFirstChild("CurrentBatter")
-    if currentBatter and currentBatter.Value ~= LP then return end
+    if currentBatter and currentBatter.Value ~= LP then 
+        print("[SB] No somos el bateador")
+        return 
+    end
 
     swingDone = true
+    print("[SB] 🏏 Ejecutando swing!")
 
     local ballPos = ball.Position
     local dir     = ball:GetAttribute("Direction") or Vector3.new(0, 0, -1)
@@ -377,6 +399,11 @@ RunService.RenderStepped:Connect(function(dt)
     if ball and ball.Parent then
         local ballPos   = ball.Position
         local isStrike_ = esStrike(ballPos)
+
+        -- Debug cada 60 frames
+        if math.random() < 0.016 then
+            print("[SB] Ball:", ball.Name, "Pos:", ballPos, "Strike:", isStrike_)
+        end
 
         -- Suavizar aim
         aimActual = aimActual:Lerp(ballPos, math.clamp(dt * 10, 0, 1))
@@ -409,6 +436,7 @@ RunService.RenderStepped:Connect(function(dt)
             if strikeZone then
                 local dist = math.abs(ballPos.Z - strikeZone.Position.Z)
                 if dist < 8 then
+                    print("[SB] Distancia al plato:", dist, "— Swing!")
                     hacerSwing(ball)
                 end
             end
