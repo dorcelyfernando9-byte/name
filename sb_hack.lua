@@ -53,12 +53,16 @@ local MUTED = Color3.fromRGB(100, 120, 165)
 -- ============================================================
 --  GUI
 -- ============================================================
+local pGui = LP:WaitForChild("PlayerGui")
+local oldGui = pGui:FindFirstChild("SBHackV3")
+if oldGui then oldGui:Destroy() end
+
 local Gui = Instance.new("ScreenGui")
 Gui.Name           = "SBHackV3"
 Gui.ResetOnSpawn   = false
 Gui.IgnoreGuiInset = true
 Gui.DisplayOrder   = 99
-Gui.Parent         = LP:WaitForChild("PlayerGui")
+Gui.Parent         = pGui
 
 local WIN_W    = 240
 local WIN_FULL = 300   -- altura expandida
@@ -188,7 +192,7 @@ do
             drag=true; ds=i.Position; sp=Win.Position
         end
     end)
-    Header.InputEnded:Connect(function(i)
+    UIS.InputEnded:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then drag=false end
     end)
@@ -258,7 +262,7 @@ local lbDist = Instance.new("TextLabel")
 lbDist.Size             = UDim2.new(1, -20, 0, 16)
 lbDist.Position         = UDim2.fromOffset(10, 103)
 lbDist.BackgroundTransparency = 1
-lbDist.Font             = Enum.Font.GothamMono
+lbDist.Font             = Enum.Font.Code
 lbDist.TextSize         = 10
 lbDist.TextColor3       = MUTED
 lbDist.Text             = "esperando pitch..."
@@ -269,7 +273,7 @@ local lbDebug = Instance.new("TextLabel")
 lbDebug.Size             = UDim2.new(1, -20, 0, 12)
 lbDebug.Position         = UDim2.fromOffset(10, 119)
 lbDebug.BackgroundTransparency = 1
-lbDebug.Font             = Enum.Font.GothamMono
+lbDebug.Font             = Enum.Font.Code
 lbDebug.TextSize         = 8
 lbDebug.TextColor3       = Color3.fromRGB(50, 80, 140)
 lbDebug.Text             = "cargando..."
@@ -362,7 +366,7 @@ corner(10, StatusBar)
 local lbStatus = Instance.new("TextLabel")
 lbStatus.Size             = UDim2.fromScale(1, 1)
 lbStatus.BackgroundTransparency = 1
-lbStatus.Font             = Enum.Font.GothamMono
+lbStatus.Font             = Enum.Font.Code
 lbStatus.TextSize         = 9
 lbStatus.TextColor3       = MUTED
 lbStatus.Text             = "⬤  Esperando..."
@@ -424,11 +428,26 @@ end
 -- ============================================================
 --  LÓGICA
 -- ============================================================
-local function esStrike(ballPos)
-    if not strikeZone then return false end
-    local l=strikeZone.CFrame:PointToObjectSpace(ballPos)
-    local h=strikeZone.Size/2
-    return math.abs(l.X)<=h.X and math.abs(l.Y)<=h.Y and math.abs(l.Z)<=h.Z
+local function predecirPitch(ball)
+    if not strikeZone then return false, ball.Position, math.huge end
+    local lPos = strikeZone.CFrame:PointToObjectSpace(ball.Position)
+    local h = strikeZone.Size / 2
+    local distZ = math.abs(lPos.Z)
+
+    local vel = ball.AssemblyLinearVelocity
+    local predX, predY = lPos.X, lPos.Y
+    if vel.Magnitude > 5 then
+        local lVel = strikeZone.CFrame:VectorToObjectSpace(vel)
+        if lPos.Z * lVel.Z < 0 and math.abs(lVel.Z) > 1 then
+            local t = math.clamp(-lPos.Z / lVel.Z, 0, 2)
+            predX = lPos.X + lVel.X * t
+            predY = lPos.Y + lVel.Y * t
+        end
+    end
+
+    local isStrike = math.abs(predX) <= h.X and math.abs(predY) <= h.Y
+    local worldAim = strikeZone.CFrame:PointToWorldSpace(Vector3.new(predX, predY, 0))
+    return isStrike, worldAim, distZ
 end
 
 local function hacerSwing(ball)
@@ -449,11 +468,14 @@ BallHolder.ChildRemoved:Connect(function(c)
     if c==ballPart then ballPart=nil; swingDone=false end
 end)
 
-Remotes.PitchBall.OnClientEvent:Connect(function(ball,_,_,_,_,ability,_,speed,throwStyle)
-    pitchTipo  = throwStyle or ability or "Normal"
-    pitchSpeed = speed and (math.floor(speed*100).." mph") or "—"
-    ballPart=ball; swingDone=false
-end)
+local Remote_PitchBall = Remotes:FindFirstChild("PitchBall") or Remotes:WaitForChild("PitchBall", 10)
+if Remote_PitchBall then
+    Remote_PitchBall.OnClientEvent:Connect(function(ball,_,_,_,_,ability,_,speed,throwStyle)
+        pitchTipo  = throwStyle or ability or "Normal"
+        pitchSpeed = speed and (math.floor(speed*100).." mph") or "—"
+        ballPart=ball; swingDone=false
+    end)
+end
 
 -- ── LOOP ─────────────────────────────────────────────────
 local aimActual = Vector3.new(0,3,0)
@@ -462,12 +484,12 @@ RunService.RenderStepped:Connect(function(dt)
     if not (ballPart and ballPart.Parent) then
         ballPart = BallHolder:FindFirstChild("Baseball")
                 or BallHolder:FindFirstChildOfClass("Part")
+                or BallHolder:FindFirstChildOfClass("MeshPart")
     end
     local ball = ballPart
     if ball and ball.Parent then
-        local bp = ball.Position
-        local ok = esStrike(bp)
-        aimActual = aimActual:Lerp(bp, math.clamp(dt*10,0,1))
+        local ok, targetAim, d = predecirPitch(ball)
+        aimActual = aimActual:Lerp(targetAim, math.clamp(dt*12, 0, 1))
         lbTipo.Text        = "⚾  "..pitchTipo
         lbSpeed.Text       = pitchSpeed
         lbZona.Text        = ok and "✓  STRIKE" or "✗  BOLA"
@@ -475,34 +497,39 @@ RunService.RenderStepped:Connect(function(dt)
         border.Color       = ok and GREEN or BLUE
         lbStatus.Text      = "⬤  "..ball.Name
         lbStatus.TextColor3= GREEN
-        if strikeZone then
-            local d=math.abs(bp.Z-strikeZone.Position.Z)
+
+        local cb = GameVals and GameVals:FindFirstChild("CurrentBatter")
+        local isBatting = not cb or cb.Value == LP
+        if State.fieldTrack and not isBatting then
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local fd = (ball.Position - hrp.Position).Magnitude
+                lbDist.Text = "🏃 "..string.format("%.1f", fd).." studs"
+                lbDist.TextColor3 = fd < 15 and YELL or MUTED
+            end
+        elseif strikeZone then
             lbDist.Text      = string.format("📍 %.1f studs al plato", d)
             lbDist.TextColor3= d<5 and RED or d<15 and YELL or MUTED
         end
-        mostrarMarca(aimActual, ok)
+
+        if State.pitchPredict then
+            mostrarMarca(aimActual, ok)
+        else
+            ocultarMarca()
+        end
+
         if State.autoSwing and ok and not swingDone and strikeZone then
-            if math.abs(bp.Z-strikeZone.Position.Z)<8 then hacerSwing(ball) end
+            if d < 8 then hacerSwing(ball) end
         end
     else
         lbTipo.Text="⚾  —"; lbSpeed.Text="— mph"
         lbZona.Text="· · ·"; lbZona.TextColor3=MUTED
         border.Color=locked and YELL or BLUE
         lbStatus.Text="⬤  Esperando..."; lbStatus.TextColor3=MUTED
+        lbDist.Text="esperando pitch..."
         lbDist.TextColor3=MUTED
         ocultarMarca()
-        if State.fieldTrack then
-            local char=LP.Character
-            local hrp=char and char:FindFirstChild("HumanoidRootPart")
-            local lb2=BallHolder:FindFirstChildOfClass("Part")
-            if hrp and lb2 then
-                local d=(lb2.Position-hrp.Position).Magnitude
-                lbDist.Text="🏃 "..string.format("%.1f",d).." studs"
-                lbDist.TextColor3=d<15 and YELL or MUTED
-            else
-                lbDist.Text="esperando pitch..."
-            end
-        end
     end
 end)
 
