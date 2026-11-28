@@ -531,7 +531,7 @@ RunService.RenderStepped:Connect(function(dt)
         end
 
         if State.autoSwing and ok and not swingDone and strikeZone then
-            if d < 8 then hacerSwing(ball) end
+            if d < 2.5 then hacerSwing(ball) end
         end
     else
         lbTipo.Text="⚾  —"; lbSpeed.Text="— mph"
