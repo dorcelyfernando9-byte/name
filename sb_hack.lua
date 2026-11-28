@@ -455,9 +455,20 @@ local function hacerSwing(ball)
     local cb=GameVals and GameVals:FindFirstChild("CurrentBatter")
     if cb and cb.Value~=LP then return end
     swingDone=true
-    lbDebug.Text="💥 SWING!"; lbDebug.TextColor3=GREEN
+
+    local swingType = "Power"
+    local sd = RS:FindFirstChild("SharedData")
+    local pData = sd and sd:FindFirstChild(LP.Name)
+    local hp = pData and pData:FindFirstChild("HittingPower")
+    local pu = GameVals and GameVals:FindFirstChild("PowerUpsEnabled")
+    if hp and hp.Value >= 100 and (not pu or pu.Value) then
+        swingType = "Star Swing"
+    end
+
+    lbDebug.Text = swingType == "Star Swing" and "⭐ STAR SWING!" or "💥 SWING!"
+    lbDebug.TextColor3 = swingType == "Star Swing" and YELL or GREEN
     Remote_SwingBat:FireServer(ball.Position, ball.Position,
-        ball:GetAttribute("Direction") or Vector3.new(0,0,-1), "Power")
+        ball:GetAttribute("Direction") or Vector3.new(0,0,-1), swingType)
     task.delay(0.4, function() lbDebug.TextColor3=Color3.fromRGB(50,80,140) end)
 end
 
