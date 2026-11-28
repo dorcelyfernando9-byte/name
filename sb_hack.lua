@@ -125,15 +125,28 @@ Gui.IgnoreGuiInset = true
 Gui.DisplayOrder   = 50
 Gui.Parent         = LP:WaitForChild("PlayerGui")
 
+-- Wrapper: agrupa el círculo + botones para que el drag mueva todo junto
+-- y los botones no queden recortados por el UICorner del Circle
+local Wrapper = Instance.new("Frame")
+Wrapper.Name                  = "Wrapper"
+Wrapper.AnchorPoint           = Vector2.new(0.5, 0.5)
+Wrapper.Position              = UDim2.new(0.08, 0, 0.5, 0)
+Wrapper.Size                  = UDim2.fromOffset(120, 160)  -- 120 círculo + 8 gap + 30 botones + 2 extra
+Wrapper.BackgroundTransparency = 1
+Wrapper.BorderSizePixel        = 0
+Wrapper.ClipsDescendants       = false
+Wrapper.Parent                 = Gui
+
 local Circle = Instance.new("Frame")
 Circle.Name             = "Circle"
-Circle.AnchorPoint      = Vector2.new(0.5, 0.5)
-Circle.Position         = UDim2.new(0.08, 0, 0.5, 0)
+Circle.AnchorPoint      = Vector2.new(0.5, 0)
+Circle.Position         = UDim2.fromOffset(60, 0)   -- centrado horizontalmente dentro del Wrapper
 Circle.Size             = UDim2.fromOffset(120, 120)
 Circle.BackgroundColor3 = C.dark
 Circle.BackgroundTransparency = 0.1
 Circle.BorderSizePixel  = 0
-Circle.Parent           = Gui
+Circle.ClipsDescendants = false
+Circle.Parent           = Wrapper
 corner(60, Circle)
 
 local bgGrad = Instance.new("UIGradient", Circle)
@@ -198,12 +211,14 @@ lbDebug.Text = "..."
 lbDebug.Parent = Circle
 
 -- ── Botones debajo del círculo ─────────────────────────────
+-- BtnRow es hijo del Wrapper (no del Circle), posicionado justo debajo del círculo.
 local BtnRow = Instance.new("Frame")
 BtnRow.AnchorPoint = Vector2.new(0.5, 0)
-BtnRow.Position    = UDim2.new(0.5, 0, 1, 8)
+BtnRow.Position    = UDim2.fromOffset(60, 128)   -- 120px círculo + 8px gap
 BtnRow.Size        = UDim2.fromOffset(120, 30)
 BtnRow.BackgroundTransparency = 1
-BtnRow.Parent      = Circle
+BtnRow.ZIndex      = 5
+BtnRow.Parent      = Wrapper
 
 local BtnLayout = Instance.new("UIListLayout", BtnRow)
 BtnLayout.FillDirection       = Enum.FillDirection.Horizontal
@@ -265,13 +280,14 @@ LockBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ── Drag ──────────────────────────────────────────────────
+-- Arrastra el Wrapper completo (círculo + botones se mueven juntos)
 do
     local drag, ds, sp = false
     Circle.InputBegan:Connect(function(i)
         if locked then return end
         if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then
-            drag = true; ds = i.Position; sp = Circle.Position
+            drag = true; ds = i.Position; sp = Wrapper.Position
         end
     end)
     Circle.InputEnded:Connect(function(i)
@@ -285,7 +301,7 @@ do
           (i.UserInputType == Enum.UserInputType.MouseMovement
         or i.UserInputType == Enum.UserInputType.Touch) then
             local d = i.Position - ds
-            Circle.Position = UDim2.new(
+            Wrapper.Position = UDim2.new(
                 sp.X.Scale, sp.X.Offset + d.X,
                 sp.Y.Scale, sp.Y.Offset + d.Y)
         end

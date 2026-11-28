@@ -1818,12 +1818,13 @@ PROVEEDORES.youtube = {
 		local nueva = {}
 		for _, r in ipairs(type(datos.results) == "table" and datos.results or {}) do
 			if type(r.url) == "string" and r.url ~= "" and r.id then
-				local img = (type(r.imagen) == "string" and r.imagen ~= "") and r.imagen or nil
+				local img = YT_API .. "/thumb?id=" .. tostring(r.id)
 				table.insert(nueva, {
 					titulo = r.titulo or T("sin_titulo"),
 					artista = r.artista or "YouTube",
 					duracion = tonumber(r.duracion),
 					id = r.id,
+					prefijo = "yt",
 					url = r.url,
 					imagen = img,
 				})
