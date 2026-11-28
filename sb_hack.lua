@@ -191,7 +191,7 @@ lbZona.Parent = Circle
 
 local lbDist = Instance.new("TextLabel")
 lbDist.Size = UDim2.new(1, -8, 0, 14)
-lbDist.Position = UDim2.new(0, 4, 0, 78)
+lbDist.Position = UDim2.new(0, 4, 0, 72)
 lbDist.BackgroundTransparency = 1
 lbDist.Font = Enum.Font.Gotham
 lbDist.TextSize = 9
@@ -202,23 +202,24 @@ lbDist.Parent = Circle
 -- Label de debug
 local lbDebug = Instance.new("TextLabel")
 lbDebug.Size = UDim2.new(1, -8, 0, 12)
-lbDebug.Position = UDim2.new(0, 4, 0, 92)
+lbDebug.Position = UDim2.new(0, 4, 0, 85)
 lbDebug.BackgroundTransparency = 1
 lbDebug.Font = Enum.Font.GothamMono
-lbDebug.TextSize = 8
+lbDebug.TextSize = 7
 lbDebug.TextColor3 = C.accent
 lbDebug.Text = "..."
 lbDebug.Parent = Circle
 
--- ── Botones debajo del círculo ─────────────────────────────
--- BtnRow es hijo del Wrapper (no del Circle), posicionado justo debajo del círculo.
+-- ── Botones en la parte inferior del círculo ───────────────
+-- Van DENTRO del Circle para evitar problemas de clipping/rendering de Roblox.
+-- Se ponen en la franja inferior (Y: 90-120) superpuestos al borde.
 local BtnRow = Instance.new("Frame")
-BtnRow.AnchorPoint = Vector2.new(0.5, 0)
-BtnRow.Position    = UDim2.fromOffset(60, 128)   -- 120px círculo + 8px gap
-BtnRow.Size        = UDim2.fromOffset(120, 30)
+BtnRow.AnchorPoint = Vector2.new(0.5, 1)
+BtnRow.Position    = UDim2.new(0.5, 0, 1, 2)   -- pegado al borde inferior del Circle
+BtnRow.Size        = UDim2.fromOffset(104, 26)
 BtnRow.BackgroundTransparency = 1
-BtnRow.ZIndex      = 5
-BtnRow.Parent      = Wrapper
+BtnRow.ZIndex      = 10
+BtnRow.Parent      = Circle
 
 local BtnLayout = Instance.new("UIListLayout", BtnRow)
 BtnLayout.FillDirection       = Enum.FillDirection.Horizontal
@@ -227,16 +228,17 @@ BtnLayout.Padding             = UDim.new(0, 4)
 
 local function makeBtn(icon, active, onClick)
     local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.fromOffset(28, 28)
+    btn.Size             = UDim2.fromOffset(26, 24)
     btn.BackgroundColor3 = active and C.accent or C.dark
     btn.BackgroundTransparency = active and 0.1 or 0.5
     btn.Text             = icon
-    btn.TextSize         = 14
+    btn.TextSize         = 13
     btn.Font             = Enum.Font.GothamBold
     btn.TextColor3       = C.white
     btn.BorderSizePixel  = 0
+    btn.ZIndex           = 10
     btn.Parent           = BtnRow
-    corner(14, btn)
+    corner(12, btn)
     stroke(C.border, 1, btn)
 
     local isActive = active
