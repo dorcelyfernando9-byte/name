@@ -1,7 +1,7 @@
 -- ============================================================
---   SUPERSTAR BASEBALL - HACK SCRIPT
---   Auto Swing · Pitch Predictor · Panel Circular
---   Basado en análisis del código fuente del juego
+--   SUPERSTAR BASEBALL - HACK SCRIPT  v2
+--   Ventana flotante · Neon Azul · Delta compatible
+--   Auto Swing · Pitch Predictor · Field Track
 -- ============================================================
 
 local Players      = game:GetService("Players")
@@ -9,309 +9,360 @@ local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UIS          = game:GetService("UserInputService")
 local LP           = Players.LocalPlayer
-local CAM          = workspace.CurrentCamera
+local RS           = game:GetService("ReplicatedStorage")
 
--- ── Recursos del juego ────────────────────────────────────
-local RS       = game:GetService("ReplicatedStorage")
+-- ── Esperar recursos del juego ────────────────────────────
 local Remotes  = RS:WaitForChild("RemoteEvents", 10)
-local GameVals = RS:WaitForChild("GameValues", 10)
+local GameVals = RS:WaitForChild("GameValues",   10)
 
-if not Remotes then warn("[SB] No se encontró RemoteEvents"); return end
+if not Remotes then warn("[SB] No RemoteEvents"); return end
 
-local Remote_PitchBall = Remotes:WaitForChild("PitchBall", 10)
-local Remote_SwingBat  = Remotes:WaitForChild("SwingBat", 10)
+local Remote_SwingBat  = Remotes:WaitForChild("SwingBat",  10)
+local Remote_BallLanded= Remotes:WaitForChild("BallLanded",10)
 
--- ── Estado ───────────────────────────────────────────────
-local ballPart   = nil   -- BasePart de la pelota actual
-local swingDone  = false -- ya swingueamos este pitch?
-local State = {
-    autoSwing    = false,
-    pitchPredict = true,
-    fieldTrack   = true,
-}
+local BallHolder = workspace:WaitForChild("BallHolder", 10)
+if not BallHolder then warn("[SB] No BallHolder"); return end
 
--- ── Colores ───────────────────────────────────────────────
-local C = {
-    bg      = Color3.fromRGB(10,  13,  22),
-    dark    = Color3.fromRGB(14,  18,  32),
-    border  = Color3.fromRGB(50,  65, 100),
-    accent  = Color3.fromRGB(80, 160, 255),
-    accent2 = Color3.fromRGB(236, 62, 196),
-    green   = Color3.fromRGB(50,  220, 130),
-    yellow  = Color3.fromRGB(244, 196,  72),
-    red     = Color3.fromRGB(235,  55,  55),
-    white   = Color3.fromRGB(230, 236, 250),
-    muted   = Color3.fromRGB(120, 135, 165),
-}
+-- ── Estado ────────────────────────────────────────────────
+local ballPart  = nil
+local swingDone = false
+local strikeZone= nil
+local State = { autoSwing = false, pitchPredict = true, fieldTrack = true }
 
-local function tween(obj, t, props)
+task.spawn(function()
+    local pitching = workspace:WaitForChild("Pitching", 15)
+    if pitching then
+        strikeZone = pitching:WaitForChild("StrikeZone", 10)
+    end
+end)
+
+-- ── Helpers ───────────────────────────────────────────────
+local function tw(obj, t, props)
     TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quad), props):Play()
 end
 local function corner(r, p)
-    Instance.new("UICorner", p).CornerRadius = UDim.new(0, r)
+    local c = Instance.new("UICorner", p)
+    c.CornerRadius = UDim.new(0, r)
 end
-local function stroke(col, th, p)
-    local s = Instance.new("UIStroke", p)
-    s.Color = col; s.Thickness = th
-end
-
--- ── Encontrar BallHolder y pelota ─────────────────────────
-local BallHolder = workspace:WaitForChild("BallHolder", 10)
-if not BallHolder then 
-    warn("[SB] No se encontró BallHolder")
-    return
-end
-
--- Monitorear pelota en BallHolder
-local function buscarPelota()
-    return BallHolder:FindFirstChild("Baseball") or BallHolder:FindFirstChildOfClass("Part")
+local function mkLabel(parent, props)
+    local lb = Instance.new("TextLabel")
+    lb.BackgroundTransparency = 1
+    lb.Font       = Enum.Font.GothamBold
+    lb.TextSize   = 13
+    lb.TextColor3 = Color3.fromRGB(230, 236, 250)
+    lb.TextXAlignment = Enum.TextXAlignment.Center
+    for k, v in pairs(props) do lb[k] = v end
+    lb.Parent = parent
+    return lb
 end
 
--- Listener cuando aparece/desaparece pelota
-BallHolder.ChildAdded:Connect(function(child)
-    if child.Name == "Baseball" or child:IsA("BasePart") then
-        ballPart  = child
-        swingDone = false
-        lbDebug.Text = "Ball: " .. child.Name
-    end
-end)
-
-BallHolder.ChildRemoved:Connect(function(child)
-    if child == ballPart then
-        ballPart  = nil
-        swingDone = false
-        lbDebug.Text = "Ball removed"
-    end
-end)
-
--- ── Strike Zone ───────────────────────────────────────────
-local strikeZone = nil
-local platesFolder = nil
-
-task.spawn(function()
-    local pitching = workspace:WaitForChild("Pitching", 10)
-    if pitching then
-        strikeZone = pitching:WaitForChild("StrikeZone", 10)
-        if strikeZone then
-            lbDebug.Text = "SZ OK"
-        else
-            lbDebug.Text = "No SZ"
-        end
-    else
-        lbDebug.Text = "No Pitching"
-    end
-    platesFolder = workspace:WaitForChild("Plates", 10)
-end)
-
--- Verificar si la pelota está en la zona de strike
-local function esStrike(ballPos)
-    if not strikeZone then return false end
-    local sz     = strikeZone
-    local local_ = sz.CFrame:PointToObjectSpace(ballPos)
-    local half   = sz.Size / 2
-    local dentro = math.abs(local_.X) <= half.X
-                and math.abs(local_.Y) <= half.Y
-                and math.abs(local_.Z) <= half.Z
-    return dentro
-end
+-- ── Colores ───────────────────────────────────────────────
+local BG     = Color3.fromRGB(10,  13,  22)
+local BG2    = Color3.fromRGB(14,  18,  40)
+local BLUE   = Color3.fromRGB(80, 160, 255)
+local PINK   = Color3.fromRGB(236, 62, 196)
+local GREEN  = Color3.fromRGB(50,  220, 130)
+local YELLOW = Color3.fromRGB(244, 196,  72)
+local RED    = Color3.fromRGB(235,  55,  55)
+local WHITE  = Color3.fromRGB(230, 236, 250)
+local MUTED  = Color3.fromRGB(100, 120, 165)
 
 -- ============================================================
---  GUI — CÍRCULO PRINCIPAL
+--  GUI — VENTANA FLOTANTE
 -- ============================================================
 local Gui = Instance.new("ScreenGui")
-Gui.Name           = "SB_Hack"
+Gui.Name           = "SBHack"
 Gui.ResetOnSpawn   = false
 Gui.IgnoreGuiInset = true
-Gui.DisplayOrder   = 50
+Gui.DisplayOrder   = 99
 Gui.Parent         = LP:WaitForChild("PlayerGui")
 
--- Wrapper: agrupa el círculo + botones para que el drag mueva todo junto
--- y los botones no queden recortados por el UICorner del Circle
-local Wrapper = Instance.new("Frame")
-Wrapper.Name                  = "Wrapper"
-Wrapper.AnchorPoint           = Vector2.new(0.5, 0.5)
-Wrapper.Position              = UDim2.new(0.08, 0, 0.5, 0)
-Wrapper.Size                  = UDim2.fromOffset(120, 160)  -- 120 círculo + 8 gap + 30 botones + 2 extra
-Wrapper.BackgroundTransparency = 1
-Wrapper.BorderSizePixel        = 0
-Wrapper.ClipsDescendants       = false
-Wrapper.Parent                 = Gui
+-- Ventana principal
+local Win = Instance.new("Frame")
+Win.Name                  = "Win"
+Win.Size                  = UDim2.fromOffset(230, 290)
+Win.Position              = UDim2.new(0.05, 0, 0.3, 0)
+Win.BackgroundColor3      = BG
+Win.BackgroundTransparency= 0.08
+Win.BorderSizePixel        = 0
+Win.Parent                 = Gui
+corner(14, Win)
 
-local Circle = Instance.new("Frame")
-Circle.Name             = "Circle"
-Circle.AnchorPoint      = Vector2.new(0.5, 0)
-Circle.Position         = UDim2.fromOffset(60, 0)   -- centrado horizontalmente dentro del Wrapper
-Circle.Size             = UDim2.fromOffset(120, 120)
-Circle.BackgroundColor3 = C.dark
-Circle.BackgroundTransparency = 0.1
-Circle.BorderSizePixel  = 0
-Circle.ClipsDescendants = false
-Circle.Parent           = Wrapper
-corner(60, Circle)
+-- Gradiente de fondo
+local grad = Instance.new("UIGradient", Win)
+grad.Color    = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(10, 13, 30)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(8,  12, 22)),
+})
+grad.Rotation = 135
 
-local bgGrad = Instance.new("UIGradient", Circle)
-bgGrad.Color    = ColorSequence.new(C.bg, Color3.fromRGB(18, 28, 52))
-bgGrad.Rotation = 135
+-- Borde neon azul/rosa
+local border = Instance.new("UIStroke", Win)
+border.Color       = BLUE
+border.Thickness   = 1.5
+border.Transparency= 0.3
 
-local accentRing = Instance.new("UIStroke", Circle)
-accentRing.Color       = C.accent
-accentRing.Thickness   = 2.5
-accentRing.Transparency = 0.4
+-- ── HEADER ────────────────────────────────────────────────
+local Header = Instance.new("Frame")
+Header.Size             = UDim2.new(1, 0, 0, 36)
+Header.BackgroundColor3 = BG2
+Header.BackgroundTransparency = 0.3
+Header.BorderSizePixel  = 0
+Header.Parent           = Win
+corner(14, Header)
+-- Recortar esquinas inferiores del header
+local headerFix = Instance.new("Frame")
+headerFix.Size             = UDim2.new(1, 0, 0, 14)
+headerFix.Position         = UDim2.new(0, 0, 1, -14)
+headerFix.BackgroundColor3 = BG2
+headerFix.BackgroundTransparency = 0.3
+headerFix.BorderSizePixel  = 0
+headerFix.Parent           = Header
 
--- Labels
-local lbTipo = Instance.new("TextLabel")
-lbTipo.Size = UDim2.new(1, 0, 0, 28)
-lbTipo.Position = UDim2.new(0, 0, 0, 14)
-lbTipo.BackgroundTransparency = 1
-lbTipo.Font = Enum.Font.GothamBlack
-lbTipo.TextSize = 14
-lbTipo.TextColor3 = C.accent
-lbTipo.Text = "⚾"
-lbTipo.Parent = Circle
+local titleLb = Instance.new("TextLabel")
+titleLb.Size             = UDim2.new(1, -44, 1, 0)
+titleLb.Position         = UDim2.new(0, 10, 0, 0)
+titleLb.BackgroundTransparency = 1
+titleLb.Font             = Enum.Font.GothamBlack
+titleLb.TextSize         = 15
+titleLb.TextColor3       = WHITE
+titleLb.TextXAlignment   = Enum.TextXAlignment.Left
+titleLb.Text             = "⚾  SB HACK"
+titleLb.Parent           = Header
 
-local lbSpeed = Instance.new("TextLabel")
-lbSpeed.Size = UDim2.new(1, 0, 0, 18)
-lbSpeed.Position = UDim2.new(0, 0, 0, 40)
-lbSpeed.BackgroundTransparency = 1
-lbSpeed.Font = Enum.Font.GothamBold
-lbSpeed.TextSize = 12
-lbSpeed.TextColor3 = C.yellow
-lbSpeed.Text = ""
-lbSpeed.Parent = Circle
+-- Separador neon
+local sep = Instance.new("Frame")
+sep.Size             = UDim2.new(1, -20, 0, 1)
+sep.Position         = UDim2.new(0, 10, 0, 35)
+sep.BackgroundColor3 = BLUE
+sep.BackgroundTransparency = 0.4
+sep.BorderSizePixel  = 0
+sep.Parent           = Win
 
-local lbZona = Instance.new("TextLabel")
-lbZona.Size = UDim2.new(1, 0, 0, 20)
-lbZona.Position = UDim2.new(0, 0, 0, 58)
-lbZona.BackgroundTransparency = 1
-lbZona.Font = Enum.Font.GothamBlack
-lbZona.TextSize = 14
-lbZona.TextColor3 = C.muted
-lbZona.Text = "·"
-lbZona.Parent = Circle
-
-local lbDist = Instance.new("TextLabel")
-lbDist.Size = UDim2.new(1, -8, 0, 14)
-lbDist.Position = UDim2.new(0, 4, 0, 72)
-lbDist.BackgroundTransparency = 1
-lbDist.Font = Enum.Font.Gotham
-lbDist.TextSize = 9
-lbDist.TextColor3 = C.muted
-lbDist.Text = "esperando..."
-lbDist.Parent = Circle
-
--- Label de debug
-local lbDebug = Instance.new("TextLabel")
-lbDebug.Size = UDim2.new(1, -8, 0, 12)
-lbDebug.Position = UDim2.new(0, 4, 0, 85)
-lbDebug.BackgroundTransparency = 1
-lbDebug.Font = Enum.Font.GothamMono
-lbDebug.TextSize = 7
-lbDebug.TextColor3 = C.accent
-lbDebug.Text = "..."
-lbDebug.Parent = Circle
-
--- ── Botones en la parte inferior del círculo ───────────────
--- Van DENTRO del Circle para evitar problemas de clipping/rendering de Roblox.
--- Se ponen en la franja inferior (Y: 90-120) superpuestos al borde.
-local BtnRow = Instance.new("Frame")
-BtnRow.AnchorPoint = Vector2.new(0.5, 1)
-BtnRow.Position    = UDim2.new(0.5, 0, 1, 2)   -- pegado al borde inferior del Circle
-BtnRow.Size        = UDim2.fromOffset(104, 26)
-BtnRow.BackgroundTransparency = 1
-BtnRow.ZIndex      = 10
-BtnRow.Parent      = Circle
-
-local BtnLayout = Instance.new("UIListLayout", BtnRow)
-BtnLayout.FillDirection       = Enum.FillDirection.Horizontal
-BtnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-BtnLayout.Padding             = UDim.new(0, 4)
-
-local function makeBtn(icon, active, onClick)
-    local btn = Instance.new("TextButton")
-    btn.Size             = UDim2.fromOffset(26, 24)
-    btn.BackgroundColor3 = active and C.accent or C.dark
-    btn.BackgroundTransparency = active and 0.1 or 0.5
-    btn.Text             = icon
-    btn.TextSize         = 13
-    btn.Font             = Enum.Font.GothamBold
-    btn.TextColor3       = C.white
-    btn.BorderSizePixel  = 0
-    btn.ZIndex           = 10
-    btn.Parent           = BtnRow
-    corner(12, btn)
-    stroke(C.border, 1, btn)
-
-    local isActive = active
-    btn.MouseButton1Click:Connect(function()
-        isActive = not isActive
-        btn.BackgroundColor3 = isActive and C.accent or C.dark
-        tween(btn, 0.1, { BackgroundTransparency = isActive and 0.1 or 0.5 })
-        onClick(isActive)
-    end)
-    return btn
-end
-
-makeBtn("🏏", State.autoSwing,    function(v) State.autoSwing    = v end)
-makeBtn("🎯", State.pitchPredict, function(v) State.pitchPredict = v end)
-makeBtn("🧤", State.fieldTrack,   function(v) State.fieldTrack   = v end)
-
--- ── Botón candado ──────────────────────────────────────────
+-- Botón lock (top right del header)
 local locked = false
 local LockBtn = Instance.new("TextButton")
-LockBtn.AnchorPoint      = Vector2.new(1, 0)
-LockBtn.Position         = UDim2.new(1, -2, 0, 2)
-LockBtn.Size             = UDim2.fromOffset(22, 22)
-LockBtn.BackgroundColor3 = C.dark
-LockBtn.BackgroundTransparency = 0.3
+LockBtn.Size             = UDim2.fromOffset(26, 26)
+LockBtn.Position         = UDim2.new(1, -30, 0, 5)
+LockBtn.BackgroundColor3 = BG
+LockBtn.BackgroundTransparency = 0.5
 LockBtn.Text             = "🔓"
-LockBtn.TextSize         = 11
+LockBtn.TextSize         = 13
 LockBtn.Font             = Enum.Font.GothamBold
-LockBtn.TextColor3       = C.white
+LockBtn.TextColor3       = WHITE
 LockBtn.BorderSizePixel  = 0
-LockBtn.ZIndex           = 10
-LockBtn.Parent           = Circle
-corner(11, LockBtn)
-stroke(C.border, 1, LockBtn)
+LockBtn.Parent           = Header
+corner(13, LockBtn)
 
 LockBtn.MouseButton1Click:Connect(function()
     locked = not locked
-    LockBtn.Text             = locked and "🔒" or "🔓"
-    LockBtn.BackgroundColor3 = locked and C.yellow or C.dark
-    tween(LockBtn, 0.15, { BackgroundTransparency = locked and 0.1 or 0.3 })
-    accentRing.Color = locked and C.yellow or C.accent
+    LockBtn.Text = locked and "🔒" or "🔓"
+    tw(border, 0.2, { Color = locked and YELLOW or BLUE })
 end)
 
--- ── Drag ──────────────────────────────────────────────────
--- Arrastra el Wrapper completo (círculo + botones se mueven juntos)
+-- ── DRAG ──────────────────────────────────────────────────
 do
-    local drag, ds, sp = false
-    Circle.InputBegan:Connect(function(i)
+    local drag, ds, sp = false, nil, nil
+    Header.InputBegan:Connect(function(i)
         if locked then return end
         if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then
-            drag = true; ds = i.Position; sp = Wrapper.Position
+            drag = true; ds = i.Position; sp = Win.Position
         end
     end)
-    Circle.InputEnded:Connect(function(i)
+    Header.InputEnded:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1
         or i.UserInputType == Enum.UserInputType.Touch then
             drag = false
         end
     end)
     UIS.InputChanged:Connect(function(i)
-        if drag and not locked and
-          (i.UserInputType == Enum.UserInputType.MouseMovement
-        or i.UserInputType == Enum.UserInputType.Touch) then
-            local d = i.Position - ds
-            Wrapper.Position = UDim2.new(
-                sp.X.Scale, sp.X.Offset + d.X,
-                sp.Y.Scale, sp.Y.Offset + d.Y)
-        end
+        if not drag or locked then return end
+        if i.UserInputType ~= Enum.UserInputType.MouseMovement
+        and i.UserInputType ~= Enum.UserInputType.Touch then return end
+        local d = i.Position - ds
+        Win.Position = UDim2.new(
+            sp.X.Scale, sp.X.Offset + d.X,
+            sp.Y.Scale, sp.Y.Offset + d.Y)
     end)
 end
 
+-- ── INFO SECTION ──────────────────────────────────────────
+-- Tipo de pitch (grande, centrado)
+local lbTipo = mkLabel(Win, {
+    Size     = UDim2.new(1, 0, 0, 30),
+    Position = UDim2.new(0, 0, 0, 44),
+    Text     = "⚾  —",
+    TextSize = 16,
+    TextColor3 = BLUE,
+    Font     = Enum.Font.GothamBlack,
+})
+
+-- Velocidad
+local lbSpeed = mkLabel(Win, {
+    Size     = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.new(0, 0, 0, 72),
+    Text     = "— mph",
+    TextSize = 22,
+    TextColor3 = YELLOW,
+    Font     = Enum.Font.GothamBlack,
+})
+
+-- Strike / Bola
+local lbZona = mkLabel(Win, {
+    Size     = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.new(0, 0, 0, 100),
+    Text     = "· · ·",
+    TextSize = 14,
+    TextColor3 = MUTED,
+    Font     = Enum.Font.GothamBlack,
+})
+
+-- Separador 2
+local sep2 = Instance.new("Frame")
+sep2.Size             = UDim2.new(1, -30, 0, 1)
+sep2.Position         = UDim2.new(0, 15, 0, 128)
+sep2.BackgroundColor3 = BLUE
+sep2.BackgroundTransparency = 0.65
+sep2.BorderSizePixel  = 0
+sep2.Parent           = Win
+
+-- Distancia
+local lbDist = mkLabel(Win, {
+    Size     = UDim2.new(1, -20, 0, 18),
+    Position = UDim2.new(0, 10, 0, 134),
+    Text     = "esperando pitch...",
+    TextSize = 10,
+    TextColor3 = MUTED,
+    Font     = Enum.Font.GothamMono,
+    TextXAlignment = Enum.TextXAlignment.Center,
+})
+
+-- Debug
+local lbDebug = mkLabel(Win, {
+    Size     = UDim2.new(1, -20, 0, 14),
+    Position = UDim2.new(0, 10, 0, 152),
+    Text     = "...",
+    TextSize = 8,
+    TextColor3 = Color3.fromRGB(60, 90, 140),
+    Font     = Enum.Font.GothamMono,
+    TextXAlignment = Enum.TextXAlignment.Center,
+})
+
+-- ── SEPARADOR BOTONES ─────────────────────────────────────
+local sep3 = Instance.new("Frame")
+sep3.Size             = UDim2.new(1, -20, 0, 1)
+sep3.Position         = UDim2.new(0, 10, 0, 170)
+sep3.BackgroundColor3 = BLUE
+sep3.BackgroundTransparency = 0.5
+sep3.BorderSizePixel  = 0
+sep3.Parent           = Win
+
+-- ── BOTONES — Colocados manualmente, hijos directos de Win ──
+-- Cada botón tiene posición absoluta, sin UIListLayout, sin Wrapper.
+-- Ancho de cada botón: 62px. Gap: 8px. Total: 62*3+8*2 = 202px
+-- Centrado en 230px: margen = (230-202)/2 = 14px
+
+local BTN_Y   = 180   -- Y desde top de Win
+local BTN_H   = 40
+local BTN_W   = 62
+local BTN_GAP = 8
+local BTN_X1  = 14
+local BTN_X2  = BTN_X1 + BTN_W + BTN_GAP
+local BTN_X3  = BTN_X2 + BTN_W + BTN_GAP
+
+local function makeToggleBtn(x, icon, label, initActive, onToggle)
+    -- Fondo del botón
+    local f = Instance.new("Frame")
+    f.Size             = UDim2.fromOffset(BTN_W, BTN_H)
+    f.Position         = UDim2.fromOffset(x, BTN_Y)
+    f.BackgroundColor3 = initActive and BLUE or BG2
+    f.BackgroundTransparency = initActive and 0.3 or 0.6
+    f.BorderSizePixel  = 0
+    f.Parent           = Win
+    corner(10, f)
+
+    -- Borde neon
+    local st = Instance.new("UIStroke", f)
+    st.Color       = BLUE
+    st.Thickness   = 1.2
+    st.Transparency= initActive and 0.1 or 0.6
+
+    -- Icono
+    local ico = Instance.new("TextLabel")
+    ico.Size             = UDim2.new(1, 0, 0, 20)
+    ico.Position         = UDim2.new(0, 0, 0, 5)
+    ico.BackgroundTransparency = 1
+    ico.Font             = Enum.Font.GothamBold
+    ico.TextSize         = 18
+    ico.TextColor3       = WHITE
+    ico.Text             = icon
+    ico.Parent           = f
+
+    -- Texto label
+    local tx = Instance.new("TextLabel")
+    tx.Size             = UDim2.new(1, 0, 0, 14)
+    tx.Position         = UDim2.new(0, 0, 0, 24)
+    tx.BackgroundTransparency = 1
+    tx.Font             = Enum.Font.GothamBold
+    tx.TextSize         = 9
+    tx.TextColor3       = initActive and WHITE or MUTED
+    tx.Text             = label
+    tx.Parent           = f
+
+    -- Botón invisible encima para capturar clicks
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.fromScale(1, 1)
+    btn.BackgroundTransparency = 1
+    btn.Text             = ""
+    btn.Parent           = f
+
+    local active = initActive
+    btn.MouseButton1Click:Connect(function()
+        active = not active
+        tw(f,  0.15, {
+            BackgroundColor3    = active and BLUE or BG2,
+            BackgroundTransparency = active and 0.3 or 0.6,
+        })
+        tw(st, 0.15, { Transparency = active and 0.1 or 0.6 })
+        tw(tx, 0.15, { TextColor3   = active and WHITE or MUTED })
+        onToggle(active)
+    end)
+
+    return f
+end
+
+makeToggleBtn(BTN_X1, "🏏", "AUTO SWING",  State.autoSwing,    function(v) State.autoSwing    = v end)
+makeToggleBtn(BTN_X2, "🎯", "PREDICTOR",  State.pitchPredict,  function(v) State.pitchPredict = v end)
+makeToggleBtn(BTN_X3, "🧤", "FIELD TRK",  State.fieldTrack,    function(v) State.fieldTrack   = v end)
+
+-- ── BARRA DE ESTADO (bottom) ──────────────────────────────
+local StatusBar = Instance.new("Frame")
+StatusBar.Size             = UDim2.new(1, 0, 0, 24)
+StatusBar.Position         = UDim2.new(0, 0, 1, -24)
+StatusBar.BackgroundColor3 = BG2
+StatusBar.BackgroundTransparency = 0.3
+StatusBar.BorderSizePixel  = 0
+StatusBar.Parent           = Win
+corner(14, StatusBar)
+-- Tapar esquinas superiores
+local sbFix = Instance.new("Frame")
+sbFix.Size             = UDim2.new(1, 0, 0, 14)
+sbFix.BackgroundColor3 = BG2
+sbFix.BackgroundTransparency = 0.3
+sbFix.BorderSizePixel  = 0
+sbFix.Parent           = StatusBar
+
+local lbStatus = mkLabel(StatusBar, {
+    Size     = UDim2.fromScale(1, 1),
+    Text     = "⬤  Esperando...",
+    TextSize = 9,
+    TextColor3 = MUTED,
+    Font     = Enum.Font.GothamMono,
+})
+
 -- ============================================================
---  MARCA DE CAÍDA (Pitch Predictor)
+--  PITCH PREDICTOR — Marca en el mundo 3D
 -- ============================================================
 local marcaParte = nil
 
@@ -324,42 +375,39 @@ local function crearMarca()
     p.CanQuery     = false
     p.CanTouch     = false
     p.CastShadow   = false
-    p.Shape        = Enum.PartType.Block
     p.Size         = Vector3.new(0.72, 0.72, 0.04)
     p.Material     = Enum.Material.Neon
-    p.Color        = C.green
+    p.Color        = GREEN
     p.Transparency = 1
     p.Parent       = workspace
 
     for _, face in ipairs({Enum.NormalId.Front, Enum.NormalId.Back}) do
         local sg = Instance.new("SurfaceGui", p)
-        sg.Face           = face
-        sg.SizingMode     = Enum.SurfaceGuiSizingMode.FixedSize
-        sg.CanvasSize     = Vector2.new(64, 64)
+        sg.Face         = face
+        sg.SizingMode   = Enum.SurfaceGuiSizingMode.FixedSize
+        sg.CanvasSize   = Vector2.new(64, 64)
         sg.LightInfluence = 0
-        sg.AlwaysOnTop    = true
-        sg.Enabled        = false
+        sg.AlwaysOnTop  = true
+        sg.Enabled      = false
 
-        local circ = Instance.new("Frame", sg)
-        circ.AnchorPoint          = Vector2.new(0.5, 0.5)
-        circ.Position             = UDim2.fromScale(0.5, 0.5)
-        circ.Size                 = UDim2.new(1, -4, 1, -4)
-        circ.BackgroundColor3     = C.green
-        circ.BackgroundTransparency = 0.5
-        corner(32, circ)
-        local b = Instance.new("UIStroke", circ)
-        b.Thickness = 4; b.Color = C.green
+        local f = Instance.new("Frame", sg)
+        f.AnchorPoint    = Vector2.new(0.5, 0.5)
+        f.Position       = UDim2.fromScale(0.5, 0.5)
+        f.Size           = UDim2.new(1, -4, 1, -4)
+        f.BackgroundColor3 = GREEN
+        f.BackgroundTransparency = 0.5
+        corner(32, f)
+        local b = Instance.new("UIStroke", f)
+        b.Thickness = 4; b.Color = GREEN
     end
     marcaParte = p
 end
 crearMarca()
 
 local function mostrarMarca(pos, isStrike)
-    if not State.pitchPredict or not marcaParte then return end
-    if not strikeZone then return end
-    -- Posicionar el círculo en la strike zone en la posición de la pelota
-    marcaParte.CFrame = CFrame.new(pos.X, pos.Y, strikeZone.Position.Z)
-    local col = isStrike and C.green or C.red
+    if not State.pitchPredict or not marcaParte or not strikeZone then return end
+    marcaParte.CFrame       = CFrame.new(pos.X, pos.Y, strikeZone.Position.Z)
+    local col               = isStrike and GREEN or RED
     marcaParte.Color        = col
     marcaParte.Transparency = 0.5
     for _, sg in ipairs(marcaParte:GetChildren()) do
@@ -384,46 +432,67 @@ local function ocultarMarca()
 end
 
 -- ============================================================
---  AUTO SWING
+--  LÓGICA DEL JUEGO
 -- ============================================================
+local function esStrike(ballPos)
+    if not strikeZone then return false end
+    local local_ = strikeZone.CFrame:PointToObjectSpace(ballPos)
+    local half   = strikeZone.Size / 2
+    return math.abs(local_.X) <= half.X
+       and math.abs(local_.Y) <= half.Y
+       and math.abs(local_.Z) <= half.Z
+end
+
 local function hacerSwing(ball)
-    if not Remote_SwingBat then 
-        lbDebug.Text = "No Remote"
-        return 
-    end
-    if swingDone then 
-        lbDebug.Text = "Already swung"
-        return 
-    end
-
-    -- Verificar que somos el bateador activo
+    if not Remote_SwingBat or swingDone then return end
     local currentBatter = GameVals and GameVals:FindFirstChild("CurrentBatter")
-    if currentBatter and currentBatter.Value ~= LP then 
-        lbDebug.Text = "Not batter"
-        return 
-    end
-
+    if currentBatter and currentBatter.Value ~= LP then return end
     swingDone = true
     lbDebug.Text = "SWING!"
-    lbDebug.TextColor3 = C.green
-
+    lbDebug.TextColor3 = GREEN
     local ballPos = ball.Position
-    local dir     = ball:GetAttribute("Direction") or Vector3.new(0, 0, -1)
-
+    local dir = ball:GetAttribute("Direction") or Vector3.new(0, 0, -1)
     Remote_SwingBat:FireServer(ballPos, ballPos, dir, "Power")
-    
-    task.delay(0.5, function()
-        lbDebug.TextColor3 = C.accent
-    end)
+    task.delay(0.4, function() lbDebug.TextColor3 = Color3.fromRGB(60, 90, 140) end)
 end
+
+local function buscarPelota()
+    return BallHolder:FindFirstChild("Baseball") or BallHolder:FindFirstChildOfClass("Part")
+end
+
+BallHolder.ChildAdded:Connect(function(child)
+    if child:IsA("BasePart") then
+        ballPart  = child
+        swingDone = false
+    end
+end)
+BallHolder.ChildRemoved:Connect(function(child)
+    if child == ballPart then
+        ballPart  = nil
+        swingDone = false
+    end
+end)
+
+-- Escuchar PitchBall para saber el tipo/velocidad desde el evento del juego
+local pitchInfo = { tipo = "—", speed = "—" }
+Remotes.PitchBall.OnClientEvent:Connect(function(ball, startPos, ctrl, endPos, duration, ability, isStraight, speed, throwStyle)
+    pitchInfo.tipo  = throwStyle or ability or "Normal"
+    pitchInfo.speed = speed and (math.floor(speed * 100) .. " mph") or "—"
+    ballPart  = ball
+    swingDone = false
+end)
 
 -- ============================================================
 --  LOOP PRINCIPAL
 -- ============================================================
 local aimActual = Vector3.new(0, 3, 0)
 
+local function fmt(s)
+    if not s or s <= 0 then return "--:--" end
+    return string.format("%d:%02d", math.floor(s/60), s%60)
+end
+
 RunService.RenderStepped:Connect(function(dt)
-    -- Buscar pelota activa si no hay una
     if not (ballPart and ballPart.Parent) then
         ballPart = buscarPelota()
     end
@@ -434,68 +503,56 @@ RunService.RenderStepped:Connect(function(dt)
         local ballPos   = ball.Position
         local isStrike_ = esStrike(ballPos)
 
-        lbDebug.Text = string.format("%s z:%.1f", ball.Name, ballPos.Z)
-
-        -- Suavizar aim
         aimActual = aimActual:Lerp(ballPos, math.clamp(dt * 10, 0, 1))
 
-        -- UI
-        local speed = ball:GetAttribute("Speed") or ball:GetAttribute("Velocity")
-        lbTipo.Text       = ball:GetAttribute("PitchType") or "⚾"
-        lbSpeed.Text      = speed and (math.floor(speed) .. " mph") or ""
-        lbZona.Text       = isStrike_ and "STRIKE ✓" or "BOLA ✗"
-        lbZona.TextColor3 = isStrike_ and C.green or C.red
+        -- Actualizar labels
+        lbTipo.Text       = "⚾  " .. pitchInfo.tipo
+        lbSpeed.Text      = pitchInfo.speed
+        lbZona.Text       = isStrike_ and "✓  STRIKE" or "✗  BOLA"
+        lbZona.TextColor3 = isStrike_ and GREEN or RED
 
-        -- Distancia al plato
         if strikeZone then
             local dist = math.abs(ballPos.Z - strikeZone.Position.Z)
-            lbDist.Text       = string.format("%.1f studs", dist)
-            lbDist.TextColor3 = dist < 5 and C.red or dist < 15 and C.yellow or C.muted
+            lbDist.Text       = string.format("📍 %.1f studs al plato", dist)
+            lbDist.TextColor3 = dist < 5 and RED or dist < 15 and YELLOW or MUTED
         end
 
-        -- Borde del círculo
-        accentRing.Color = locked and C.yellow
-                        or isStrike_ and C.green
-                        or C.red
+        border.Color = isStrike_ and GREEN or BLUE
+        lbStatus.Text = "⬤  Ball detected • " .. ball.Name
+        lbStatus.TextColor3 = GREEN
 
-        -- Pitch predictor
         mostrarMarca(aimActual, isStrike_)
 
-        -- Auto Swing — solo strikes
-        if State.autoSwing and isStrike_ and not swingDone then
-            if strikeZone then
-                local dist = math.abs(ballPos.Z - strikeZone.Position.Z)
-                lbDebug.Text = string.format("d:%.1f S:%s", dist, isStrike_ and "Y" or "N")
-                if dist < 8 then
-                    hacerSwing(ball)
-                end
-            end
+        if State.autoSwing and isStrike_ and not swingDone and strikeZone then
+            local dist = math.abs(ballPos.Z - strikeZone.Position.Z)
+            lbDebug.Text = string.format("d:%.1f", dist)
+            if dist < 8 then hacerSwing(ball) end
         end
 
     else
-        -- Sin pelota
-        lbTipo.Text        = "⚾"
-        lbSpeed.Text       = ""
-        lbZona.Text        = "·"
-        lbZona.TextColor3  = C.muted
-        lbDist.Text        = "esperando..."
-        lbDist.TextColor3  = C.muted
-        accentRing.Color   = locked and C.yellow or C.border
+        lbTipo.Text        = "⚾  —"
+        lbSpeed.Text       = "— mph"
+        lbZona.Text        = "· · ·"
+        lbZona.TextColor3  = MUTED
+        lbDist.Text        = "esperando pitch..."
+        lbDist.TextColor3  = MUTED
+        border.Color       = locked and YELLOW or BLUE
+        lbStatus.Text      = "⬤  Esperando..."
+        lbStatus.TextColor3= MUTED
         ocultarMarca()
 
-        -- Field tracker
         if State.fieldTrack then
             local char = LP.Character
             local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            local BallHolder = workspace:FindFirstChild("BallHolder")
-            local liveBall = BallHolder and BallHolder:FindFirstChildOfClass("Part")
+            local liveBall = BallHolder:FindFirstChildOfClass("Part")
             if hrp and liveBall then
                 local dist = (liveBall.Position - hrp.Position).Magnitude
                 lbDist.Text       = string.format("🏃 %.1f studs", dist)
-                lbDist.TextColor3 = dist < 15 and C.yellow or C.muted
+                lbDist.TextColor3 = dist < 15 and YELLOW or MUTED
             end
         end
     end
 end)
 
-print("[SB Hack] ✅ Cargado — Superstar Baseball")
+lbDebug.Text = "cargado ✓"
+print("[SB Hack v2] ✅ Cargado")
