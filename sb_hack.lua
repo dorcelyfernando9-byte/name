@@ -429,7 +429,7 @@ end
 --  LÓGICA
 -- ============================================================
 local function predecirPitch(ball)
-    if not strikeZone then return false, ball.Position, math.huge end
+    if not strikeZone then return false, false, ball.Position, math.huge end
     local lPos = strikeZone.CFrame:PointToObjectSpace(ball.Position)
     local h = strikeZone.Size / 2
     local distZ = math.abs(lPos.Z)
@@ -445,9 +445,11 @@ local function predecirPitch(ball)
         end
     end
 
+    local margin = math.max(ball.Size.X, ball.Size.Y) * 0.5
     local isStrike = math.abs(predX) <= h.X and math.abs(predY) <= h.Y
+    local isBorder = not isStrike and math.abs(predX) <= (h.X + margin) and math.abs(predY) <= (h.Y + margin)
     local worldAim = strikeZone.CFrame:PointToWorldSpace(Vector3.new(predX, predY, 0))
-    return isStrike, worldAim, distZ
+    return isStrike, isBorder, worldAim, distZ
 end
 
 local function hacerSwing(ball)
@@ -499,13 +501,13 @@ RunService.RenderStepped:Connect(function(dt)
     end
     local ball = ballPart
     if ball and ball.Parent then
-        local ok, targetAim, d = predecirPitch(ball)
+        local ok, isBorder, targetAim, d = predecirPitch(ball)
         aimActual = aimActual:Lerp(targetAim, math.clamp(dt*12, 0, 1))
         lbTipo.Text        = "⚾  "..pitchTipo
         lbSpeed.Text       = pitchSpeed
-        lbZona.Text        = ok and "✓  STRIKE" or "✗  BOLA"
-        lbZona.TextColor3  = ok and GREEN or RED
-        border.Color       = ok and GREEN or BLUE
+        lbZona.Text        = ok and "✓  STRIKE" or isBorder and "⚠  BORDE" or "✗  BOLA"
+        lbZona.TextColor3  = ok and GREEN or isBorder and YELL or RED
+        border.Color       = ok and GREEN or isBorder and YELL or BLUE
         lbStatus.Text      = "⬤  "..ball.Name
         lbStatus.TextColor3= GREEN
 
@@ -525,12 +527,12 @@ RunService.RenderStepped:Connect(function(dt)
         end
 
         if State.pitchPredict then
-            mostrarMarca(aimActual, ok)
+            mostrarMarca(aimActual, ok or isBorder)
         else
             ocultarMarca()
         end
 
-        if State.autoSwing and ok and not swingDone and strikeZone then
+        if State.autoSwing and (ok or isBorder) and not swingDone and strikeZone then
             if d < 2.5 then hacerSwing(ball) end
         end
     else
